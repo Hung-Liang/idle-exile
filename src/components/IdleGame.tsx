@@ -7,7 +7,6 @@ import {
   getMonsterStats
 } from '../utils/combat';
 import { generateRareItem, calculateItemStats } from '../utils/loot';
-import type { MonsterStats } from '../utils/combat';
 import type { Item, ItemSlot } from '../utils/loot';
 
 const IdleGame: React.FC = () => {
