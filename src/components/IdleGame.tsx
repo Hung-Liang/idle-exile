@@ -548,15 +548,53 @@ const IdleGame: React.FC = () => {
       </section>
 
       <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr 240px', gap: '20px' }}>
-        <aside style={{ backgroundColor: '#1e293b', padding: '15px', borderRadius: '8px' }}>
-          <h3>Stats</h3>
-          <p>Lv: {playerLevel} | Gold: {formatLargeNumber(gold)}</p>
-          <p>Scrap: {formatLargeNumber(craftingScrap)} | Catalysts: {corruptionCatalysts}</p>
-          <div style={{ fontSize: '0.8rem', lineHeight: '1.6' }}>
-            <div>DPS: {formatLargeNumber(finalStats.dps)} | HP: {formatLargeNumber(finalStats.hp)}</div>
-            <div>AS: {finalStats.attackSpeed.toFixed(1)} | Regen: 5%/s</div>
+        <aside style={{ backgroundColor: '#1e293b', padding: '20px', borderRadius: '12px', border: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+          <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#f8fafc', borderBottom: '1px solid #334155', paddingBottom: '10px' }}>Character Stats</h3>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+              <span style={{ color: '#94a3b8' }}>Level</span>
+              <span style={{ fontWeight: 'bold' }}>{playerLevel}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+              <span style={{ color: '#94a3b8' }}>Gold</span>
+              <span style={{ color: '#fbbf24', fontWeight: 'bold' }}>{formatLargeNumber(gold)}</span>
+            </div>
           </div>
-          <ProgressBar value={currentExp} max={expToNextLevel} color="#3b82f6" label="EXP" />
+
+          <div style={{ borderTop: '1px solid #334155', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+              <span style={{ color: '#94a3b8' }}>Scrap</span>
+              <span style={{ color: '#60a5fa', fontWeight: 'bold' }}>{formatLargeNumber(craftingScrap)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+              <span style={{ color: '#94a3b8' }}>Catalysts</span>
+              <span style={{ color: '#f87171', fontWeight: 'bold' }}>{corruptionCatalysts}</span>
+            </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid #334155', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+              <span style={{ color: '#94a3b8' }}>DPS</span>
+              <span style={{ color: '#f8fafc' }}>{formatLargeNumber(finalStats.dps)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+              <span style={{ color: '#94a3b8' }}>Max HP</span>
+              <span style={{ color: '#f8fafc' }}>{formatLargeNumber(finalStats.hp)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+              <span style={{ color: '#94a3b8' }}>Attack Speed</span>
+              <span style={{ color: '#f8fafc' }}>{finalStats.attackSpeed.toFixed(1)}/s</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+              <span style={{ color: '#94a3b8' }}>HP Regen</span>
+              <span style={{ color: '#10b981' }}>5%/s</span>
+            </div>
+          </div>
+          
+          <div style={{ marginTop: 'auto', paddingTop: '10px' }}>
+            <ProgressBar value={currentExp} max={expToNextLevel} color="#3b82f6" label="EXP PROGRESS" />
+          </div>
         </aside>
 
         <main style={{ backgroundColor: '#1e293b', padding: '15px', borderRadius: '8px' }}>
