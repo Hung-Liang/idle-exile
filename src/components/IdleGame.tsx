@@ -443,13 +443,34 @@ const IdleGame: React.FC = () => {
     }
   };
 
-  const renderAffixes = (item: Item) => (
-    <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '4px', borderTop: '1px solid #334155', paddingTop: '4px' }}>
-      {[...item.prefixes, ...item.suffixes].map(a => (
-        <div key={a.id}>• {a.name}: +{a.value}{a.statKey === 'dr' ? '%' : ''} {a.statKey.toUpperCase()} (T{a.tier})</div>
-      ))}
-    </div>
-  );
+  const renderAffixes = (item: Item) => {
+    const totals = calculateItemStats([item]);
+    return (
+      <div style={{ marginTop: '8px', borderTop: '1px solid #334155', paddingTop: '8px' }}>
+        {/* Total Summary Section */}
+        <div style={{ marginBottom: '8px', paddingBottom: '4px', borderBottom: '1px dashed #334155' }}>
+          <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', marginBottom: '2px' }}>Total Stats</div>
+          {totals.dps > 0 && <div style={{ fontSize: '0.8rem', color: '#f8fafc', fontWeight: 'bold' }}>+{formatLargeNumber(totals.dps)} DPS</div>}
+          {totals.hp > 0 && <div style={{ fontSize: '0.8rem', color: '#f8fafc', fontWeight: 'bold' }}>+{formatLargeNumber(totals.hp)} HP</div>}
+          {totals.dr > 0 && <div style={{ fontSize: '0.8rem', color: '#f8fafc', fontWeight: 'bold' }}>+{(totals.dr * 100).toFixed(1)}% Damage Reduction</div>}
+        </div>
+
+        {/* Individual Affixes Section */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          {[...item.prefixes, ...item.suffixes].map(a => (
+            <div key={a.id} style={{ fontSize: '0.75rem', color: '#e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>
+                +{a.statKey === 'dr' ? (a.value * 100).toFixed(1) + '%' : a.value} {a.statKey.toUpperCase()}
+              </span>
+              <span style={{ fontSize: '0.6rem', color: '#64748b', marginLeft: '10px' }}>
+                {a.name} (T{a.tier})
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   const handleEquipSkill = (id: string) => { if (equippedSkillIds.length < 3 && !equippedSkillIds.includes(id)) { setEquippedSkillIds(p => [...p, id]); setSkillCooldowns(p => ({ ...p, [id]: 0 })); } };
   const handleUnequipSkill = (id: string) => setEquippedSkillIds(p => p.filter(sid => sid !== id));
