@@ -109,9 +109,16 @@ const IdleGame: React.FC = () => {
   const [inventory, setInventory] = useState<Item[]>([]);
   const [equipment, setEquipment] = useState<Record<ItemSlot, Item | null>>({ WEAPON: null, ARMOR: null, ACCESSORY: null });
   const [combatLogs, setCombatLogs] = useState<string[]>(["Game Started"]);
-  const [currentTab, setCurrentTab] = useState<'INVENTORY' | 'PASSIVES' | 'SKILLS'>('INVENTORY');
+  const [currentTab, setCurrentTab] = useState<'INVENTORY' | 'PASSIVES' | 'SKILLS' | 'FILTER'>('INVENTORY');
   const [damageFlash, setDamageFlash] = useState(false);
   const [offlineRewards, setOfflineRewards] = useState<{ timeAway: number; exp: number; gold: number; scrap: number; kills: number; } | null>(null);
+  
+  // Loot Filter State
+  const [filterRules, setFilterRules] = useState<{id: number, rarity: string, action: string}[]>([
+    { id: 1, rarity: "MAGIC", action: "SALVAGE" },
+    { id: 2, rarity: "RARE", action: "KEEP" }
+  ]);
+
   const [targetAffixGroup, setTargetAffixGroup] = useState<string>(UNIQUE_AFFIX_GROUPS[0]);
   const [minTier, setMinTier] = useState<number>(1);
   const [panOffset, setPanOffset] = useState({ x: 50, y: 50 });
@@ -178,14 +185,35 @@ const IdleGame: React.FC = () => {
     addLog(`Claimed offline rewards!`);
   };
 
-  const processLootDrop = (rarity: 'MAGIC' | 'RARE', itemLevel: number) => {
-    const item = generateItem(rarity, itemLevel);
-    if (item.rarity === 'MAGIC') {
-      const scrap = item.itemLevel * 2; setCraftingScrap(prev => prev + scrap);
-      addLog(`Auto-salvaged Magic item for ${scrap} Scrap.`);
+  const processLootDrop = (rarity: string, itemLevel: number) => {
+    const item = generateItem(rarity as any, itemLevel);
+    
+    // Find matching rule
+    const rule = filterRules.find(r => r.rarity === item.rarity) || { action: 'KEEP' };
+
+    if (rule.action === 'SALVAGE') {
+      const scrap = item.itemLevel * (item.rarity === 'RARE' ? 5 : 2);
+      setCraftingScrap(prev => prev + scrap);
+      addLog(`Auto-salvaged ${item.rarity} item for ${scrap} Scrap.`);
+    } else if (rule.action === 'SELL_FOR_GOLD') {
+      const goldGained = item.itemLevel * (item.rarity === 'RARE' ? 25 : 10);
+      setGold(prev => prev + goldGained);
+      addLog(`Auto-sold ${item.rarity} item for ${goldGained} Gold.`);
     } else {
-      setInventory(prev => [item, ...prev]); addLog(`Dropped a Rare ${item.slot}!`);
+      setInventory(prev => [item, ...prev]);
+      addLog(`Dropped a ${item.rarity} ${item.slot}!`);
     }
+  };
+
+  const handleAddFilterRule = (rarity: string, action: string) => {
+    setFilterRules(prev => {
+      const filtered = prev.filter(r => r.rarity !== rarity);
+      return [...filtered, { id: Date.now(), rarity, action }];
+    });
+  };
+
+  const handleRemoveFilterRule = (id: number) => {
+    setFilterRules(prev => prev.filter(r => r.id !== id));
   };
 
   const handleMonsterDeath = (s: any, earnedExp: number, earnedGold: number) => {
@@ -340,7 +368,20 @@ const IdleGame: React.FC = () => {
         </aside>
 
         <main style={{ backgroundColor: '#1e293b', padding: '15px', borderRadius: '8px' }}>
-          <div style={{ display: 'flex', gap: '5px', marginBottom: '15px' }}>{['INVENTORY', 'PASSIVES', 'SKILLS'].map(t => <button key={t} onClick={() => setCurrentTab(t as any)} style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: currentTab === t ? '#3b82f6' : '#334155', color: 'white', fontSize: '0.8rem' }}>{t}</button>)}</div>
+          <div style={{ display: 'flex', gap: '5px', marginBottom: '15px' }}>
+            {['INVENTORY', 'PASSIVES', 'SKILLS', 'FILTER'].map(t => (
+              <button 
+                key={t} 
+                onClick={() => setCurrentTab(t as any)} 
+                style={{ 
+                  padding: '6px 12px', borderRadius: '4px', border: 'none', cursor: 'pointer', 
+                  backgroundColor: currentTab === t ? '#3b82f6' : '#334155', color: 'white', fontSize: '0.8rem' 
+                }}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
           {currentTab === 'INVENTORY' ? (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '15px' }}>{(['WEAPON', 'ARMOR', 'ACCESSORY'] as ItemSlot[]).map(s => <div key={s} style={{ border: '1px solid #334155', padding: '8px', backgroundColor: '#0f172a', fontSize: '0.7rem' }}><div style={{ color: '#64748b' }}>{s}</div>{equipment[s] ? <div onClick={() => handleUnequip(s)} style={{ color: '#fbbf24', cursor: 'pointer' }}>{equipment[s]?.name}</div> : 'Empty'}</div>)}</div>
@@ -353,8 +394,67 @@ const IdleGame: React.FC = () => {
                 {Object.values(PASSIVE_TREE).map(node => <PassiveTreeNode key={node.id} node={node} isAllocated={allocatedPassiveNodes.includes(node.id)} isAvailable={isNodeAllocatable(node.id, allocatedPassiveNodes, unspentPassivePoints)} onAllocate={handleAllocatePassive} />)}
               </div>
             </div>
+          ) : currentTab === 'FILTER' ? (
+            <div style={{ height: '400px', overflowY: 'auto' }}>
+              <h3 style={{ fontSize: '1rem', marginBottom: '10px' }}>Custom Loot Filter</h3>
+
+              <div style={{ 
+                backgroundColor: '#0f172a', padding: '15px', borderRadius: '8px', 
+                marginBottom: '20px', border: '1px solid #334155' 
+              }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '10px', alignItems: 'end' }}>
+                  <div>
+                    <label style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>IF RARITY IS:</label>
+                    <select id="rarity-select" style={{ width: '100%', padding: '5px', backgroundColor: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '4px' }}>
+                      <option value="NORMAL">NORMAL</option>
+                      <option value="MAGIC">MAGIC</option>
+                      <option value="RARE">RARE</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>THEN DO:</label>
+                    <select id="action-select" style={{ width: '100%', padding: '5px', backgroundColor: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '4px' }}>
+                      <option value="KEEP">KEEP</option>
+                      <option value="SALVAGE">SALVAGE</option>
+                      <option value="SELL_FOR_GOLD">SELL FOR GOLD</option>
+                    </select>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      const r = (document.getElementById('rarity-select') as HTMLSelectElement).value;
+                      const a = (document.getElementById('action-select') as HTMLSelectElement).value;
+                      handleAddFilterRule(r, a);
+                    }}
+                    style={{ padding: '6px 15px', backgroundColor: '#3b82f6', border: 'none', borderRadius: '4px', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}
+                  >
+                    Add Rule
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {filterRules.map(rule => (
+                  <div key={rule.id} style={{ 
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '10px 15px', backgroundColor: '#0f172a', borderRadius: '6px', borderLeft: '4px solid #3b82f6'
+                  }}>
+                    <span style={{ fontSize: '0.85rem' }}>
+                      IF <strong style={{ color: '#fbbf24' }}>{rule.rarity}</strong> THEN <strong style={{ color: '#10b981' }}>{rule.action.replace(/_/g, ' ')}</strong>
+                    </span>
+                    <button 
+                      onClick={() => handleRemoveFilterRule(rule.id)}
+                      style={{ backgroundColor: '#7f1d1d', border: 'none', color: 'white', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem' }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+                {filterRules.length === 0 && <div style={{ textAlign: 'center', color: '#64748b', marginTop: '20px' }}>No rules set. Default action: KEEP</div>}
+              </div>
+            </div>
           ) : (
-            <div style={{ height: '400px', overflowY: 'auto' }}>{unlockedSkills.map(sk => { const isEq = equippedSkillIds.includes(sk.id); const cd = skillCooldowns[sk.id] || 0; return <div key={sk.id} style={{ backgroundColor: '#0f172a', padding: '10px', borderRadius: '6px', marginBottom: '8px', border: isEq ? '1px solid #3b82f6' : '1px solid #334155' }}><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}><span style={{ fontWeight: 'bold' }}>{sk.name} (Lv {sk.level})</span><button onClick={() => isEq ? handleUnequipSkill(sk.id) : handleEquipSkill(sk.id)} style={{ padding: '2px 8px', backgroundColor: isEq ? '#7f1d1d' : '#059669', border: 'none', color: 'white' }}>{isEq ? 'Unequip' : 'Equip'}</button></div><div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>CD: {sk.cooldownTicks}s | Cur: {cd}s</div><ProgressBar value={sk.currentExp} max={calculateSkillExpToNextLevel(sk.baseExpRequired, sk.level)} color="#8b5cf6" label="Skill EXP" /></div>; })}</div>
+            <div style={{ height: '400px', overflowY: 'auto' }}>
+{unlockedSkills.map(sk => { const isEq = equippedSkillIds.includes(sk.id); const cd = skillCooldowns[sk.id] || 0; return <div key={sk.id} style={{ backgroundColor: '#0f172a', padding: '10px', borderRadius: '6px', marginBottom: '8px', border: isEq ? '1px solid #3b82f6' : '1px solid #334155' }}><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}><span style={{ fontWeight: 'bold' }}>{sk.name} (Lv {sk.level})</span><button onClick={() => isEq ? handleUnequipSkill(sk.id) : handleEquipSkill(sk.id)} style={{ padding: '2px 8px', backgroundColor: isEq ? '#7f1d1d' : '#059669', border: 'none', color: 'white' }}>{isEq ? 'Unequip' : 'Equip'}</button></div><div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>CD: {sk.cooldownTicks}s | Cur: {cd}s</div><ProgressBar value={sk.currentExp} max={calculateSkillExpToNextLevel(sk.baseExpRequired, sk.level)} color="#8b5cf6" label="Skill EXP" /></div>; })}</div>
           )}
         </main>
         <aside style={{ backgroundColor: '#1e293b', padding: '15px', borderRadius: '8px' }}>
