@@ -508,6 +508,12 @@ const IdleGame: React.FC = () => {
     );
   };
 
+  const renderDynamicModifier = (modText: string, instability: number, isCorrupted: boolean) => {
+    if (!isCorrupted) return modText;
+    const instMult = 1 + instability * 0.05;
+    return modText.replace(/(\d+)%/, (_, val) => `${Math.floor(Number(val) * instMult)}%`);
+  };
+
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '20px', color: '#e2e8f0' }}>
       <style>{`
@@ -662,7 +668,7 @@ const IdleGame: React.FC = () => {
                     <h4 style={{ margin: 0, color: stagedMap.isCorrupted ? '#ef4444' : '#a78bfa' }}>{stagedMap.isCorrupted ? 'CORRUPTED MAP' : 'Staged Map'}</h4>
                     {!stagedMap.isCorrupted && <button onClick={handleCorruptMap} disabled={corruptionCatalysts <= 0} style={{ padding: '4px 10px', backgroundColor: corruptionCatalysts > 0 ? '#ef4444' : '#334155', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 'bold' }}>Corrupt (1 Catalyst)</button>}
                   </div>
-                  {stagedMap.modifiers.map((m, i) => <div key={i} style={{ fontSize: '0.85rem', marginBottom: '4px' }}>• {m.text}</div>)}
+                  {stagedMap.modifiers.map((m, i) => <div key={i} style={{ fontSize: '0.85rem', marginBottom: '4px' }}>• {renderDynamicModifier(m.text, stagedMap.instability, stagedMap.isCorrupted)}</div>)}
                   {stagedMap.isCorrupted && <div style={{ fontSize: '0.85rem', marginBottom: '4px', color: '#fca5a5', fontWeight: 'bold' }}>• Instability Bonus: +{stagedMap.instability * 5}% Difficulty & Rewards</div>}
                   <button onClick={handleOpenMap} disabled={!!activeMap} style={{ marginTop: '15px', width: '100%', padding: '10px', backgroundColor: activeMap ? '#334155' : (stagedMap.isCorrupted ? '#b91c1c' : '#7c3aed'), color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>{activeMap ? 'Map Active' : 'Open Map'}</button>
                 </div>
@@ -671,7 +677,7 @@ const IdleGame: React.FC = () => {
                 <div style={{ backgroundColor: activeMap.isCorrupted ? 'rgba(127, 29, 29, 0.2)' : 'rgba(5, 150, 105, 0.1)', padding: '15px', borderRadius: '8px', border: `1px solid ${activeMap.isCorrupted ? '#ef4444' : '#059669'}` }}>
                   <h4 style={{ margin: '0 0 10px 0', color: activeMap.isCorrupted ? '#ef4444' : '#34d399' }}>{activeMap.isCorrupted ? `CORRUPTED (Instability: ${activeMap.instability})` : 'Active Map'}</h4>
                   <div style={{ fontSize: '1.2rem', fontWeight: 'bold', marginBottom: '10px' }}>{activeMap.remainingKills} Kills Left</div>
-                  {activeMap.modifiers.map((m, i) => <div key={i} style={{ fontSize: '0.85rem', marginBottom: '4px' }}>• {m.text}</div>)}
+                  {activeMap.modifiers.map((m, i) => <div key={i} style={{ fontSize: '0.85rem', marginBottom: '4px' }}>• {renderDynamicModifier(m.text, activeMap.instability, activeMap.isCorrupted)}</div>)}
                   {activeMap.isCorrupted && <div style={{ fontSize: '0.85rem', marginBottom: '4px', color: '#fca5a5', fontWeight: 'bold' }}>• Instability Bonus: +{activeMap.instability * 5}% Difficulty & Rewards</div>}
                 </div>
               )}
