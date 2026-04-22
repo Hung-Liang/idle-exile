@@ -114,7 +114,7 @@ const IdleGame: React.FC = () => {
   const [isCombatPaused, setIsCombatPaused] = useState(false);
   const [highestUnlockedZone, setHighestUnlockedZone] = useState(1);
   const [targetFarmingZone, setTargetFarmingZone] = useState(1);
-  const [autoProgressZone] = useState(true);
+  const [autoProgressZone, setAutoProgressZone] = useState(true);
   const [killsInCurrentZone, setKillsInCurrentZone] = useState(0);
   const [playerAttackTimer, setPlayerAttackTimer] = useState(0);
   const [enemyAttackTimer, setEnemyAttackTimer] = useState(0);
@@ -178,7 +178,7 @@ const IdleGame: React.FC = () => {
     const data = {
       playerLevel: stateRef.current.playerLevel, currentExp: stateRef.current.currentExp, gold: stateRef.current.gold,
       craftingScrap: stateRef.current.craftingScrap, targetFarmingZone: stateRef.current.targetFarmingZone,
-      highestUnlockedZone: stateRef.current.highestUnlockedZone, allocatedPassiveNodes: stateRef.current.allocatedPassiveNodes,
+      highestUnlockedZone: stateRef.current.highestUnlockedZone, autoProgressZone: stateRef.current.autoProgressZone, allocatedPassiveNodes: stateRef.current.allocatedPassiveNodes,
       unlockedSkills: stateRef.current.unlockedSkills, equippedSkillIds: stateRef.current.equippedSkillIds,
       inventory: stateRef.current.inventory, equipment: stateRef.current.equipment, filterRules: stateRef.current.filterRules,
       corruptionCatalysts: stateRef.current.corruptionCatalysts, killsInCurrentZone: stateRef.current.killsInCurrentZone, lastSaved: Date.now()
@@ -216,6 +216,7 @@ const IdleGame: React.FC = () => {
       setPlayerLevel(data.playerLevel); setCurrentExp(data.currentExp); setGold(data.gold);
       setCraftingScrap(data.craftingScrap || 0); setTargetFarmingZone(data.targetFarmingZone || 1);
       setHighestUnlockedZone(data.highestUnlockedZone || 1);
+      if (data.autoProgressZone !== undefined) setAutoProgressZone(data.autoProgressZone);
       setAllocatedPassiveNodes(data.allocatedPassiveNodes || []); setUnlockedSkills(data.unlockedSkills || []);
       setEquippedSkillIds(data.equippedSkillIds || []); setInventory(data.inventory || []); setEquipment(data.equipment || {});
       setFilterRules(data.filterRules || [{ id: 1, rarity: "MAGIC", action: "SALVAGE" }, { id: 2, rarity: "RARE", action: "KEEP" }]);
@@ -258,7 +259,7 @@ const IdleGame: React.FC = () => {
     const chance = 0.3 * multiplier;
     if (Math.random() > chance) return;
     const item = generateItem(rarity as any, itemLevel);
-    const rule = filterRules.find(r => r.rarity === item.rarity) || { action: 'KEEP' };
+    const rule = stateRef.current.filterRules.find(r => r.rarity === item.rarity) || { action: 'KEEP' };
     if (rule.action === 'SALVAGE') {
       const scrap = item.itemLevel * (item.rarity === 'RARE' ? 5 : 2);
       setCraftingScrap(prev => prev + scrap);
@@ -302,8 +303,10 @@ const IdleGame: React.FC = () => {
         const nextKills = s.killsInCurrentZone + 1;
         if (nextKills >= 10) {
           setHighestUnlockedZone(prev => prev + 1);
-          setTargetFarmingZone(prev => prev + 1);
           setKillsInCurrentZone(0);
+          if (s.autoProgressZone) {
+            setTargetFarmingZone(prev => prev + 1);
+          }
         } else {
           setKillsInCurrentZone(nextKills);
         }
@@ -327,8 +330,8 @@ const IdleGame: React.FC = () => {
     let req = calculateExpToNextLevel(newLevel);
     while (newExp >= req) { newExp -= req; newLevel++; req = calculateExpToNextLevel(newLevel); }
     if (newLevel !== s.playerLevel) {
-      const pStats = calculatePlayerStats(newLevel); const gStats = calculateItemStats(Object.values(equipment));
-      const psStats = calculatePassiveStats(allocatedPassiveNodes);
+      const pStats = calculatePlayerStats(newLevel); const gStats = calculateItemStats(Object.values(s.equipment));
+      const psStats = calculatePassiveStats(s.allocatedPassiveNodes);
       setCurrentPlayerHP(pStats.hp + gStats.hp + psStats.hp); setPlayerLevel(newLevel);
     }
     setCurrentExp(newExp); setGold(s.gold + finalGold);
@@ -406,7 +409,6 @@ const IdleGame: React.FC = () => {
           if (s.activeMap) { setActiveMap(null); addLog("MAP FAILED!"); }
           const prev = Math.max(1, s.targetFarmingZone - 1);
           setTargetFarmingZone(prev); setCurrentPlayerHP(s.finalStats.hp);
-          setKillsInCurrentZone(0);
           spawnMonster(prev); addLog(`Died! Retreating.`);
           setPlayerAttackTimer(1); // Reset timers on death
           setEnemyAttackTimer(1);
@@ -511,7 +513,11 @@ const IdleGame: React.FC = () => {
           <select value={targetFarmingZone} onChange={(e) => { const z = Number(e.target.value); setTargetFarmingZone(z); spawnMonster(z); }} style={{ padding: '5px', backgroundColor: '#0f172a', color: 'white', border: '1px solid #334155', borderRadius: '4px' }}>
             {Array.from({ length: highestUnlockedZone }, (_, i) => i + 1).map(z => <option key={z} value={z}>Zone {z}</option>)}
           </select>
-          {!activeMap && <span style={{ fontSize: '0.8rem', color: '#fbbf24' }}>Progress: {killsInCurrentZone}/10 Kills</span>}
+          {!activeMap && targetFarmingZone === highestUnlockedZone && <span style={{ fontSize: '0.8rem', color: '#fbbf24' }}>Progress: {killsInCurrentZone}/10 Kills</span>}
+          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8rem', color: '#94a3b8', cursor: 'pointer' }}>
+            <input type="checkbox" checked={autoProgressZone} onChange={(e) => setAutoProgressZone(e.target.checked)} />
+            Auto-Advance
+          </label>
         </div>
       </section>
 
