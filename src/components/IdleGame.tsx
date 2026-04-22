@@ -386,12 +386,36 @@ const IdleGame: React.FC = () => {
   const handleSalvage = (itm: Item) => { setInventory(prev => prev.filter(x => x.id !== itm.id)); setCraftingScrap(p => p + itm.itemLevel * (itm.rarity === 'RARE' ? 5 : 2)); };
   const handleAutoCraft = () => {
     let att = 0; let curG = gold; let ok = false; let res: Item | null = null;
-    while (att < 1000 && curG >= 500) {
-      att++; curG -= 500; const ni = generateItem('RARE', targetFarmingZone);
-      if ([...ni.prefixes, ...ni.suffixes].some(a => a.group === targetAffixGroup && a.tier <= minTier)) { ok = true; res = ni; break; }
+    const costPerRoll = 500;
+    const maxRolls = 1000;
+
+    while (att < maxRolls && curG >= costPerRoll) {
+      att++; curG -= costPerRoll;
+      const ni = generateItem('RARE', targetFarmingZone);
+      const allAffixes = [...ni.prefixes, ...ni.suffixes];
+      if (allAffixes.some(a => a.group === targetAffixGroup && a.tier <= minTier)) {
+        ok = true; res = ni; break;
+      }
     }
-    setGold(curG); if (ok && res) { setInventory(p => [res!, ...p]); addLog(`Auto-Craft SUCCESS!`); } else addLog(`Auto-Craft FAILED.`);
+
+    setGold(curG);
+    if (ok && res) {
+      setInventory(p => [res!, ...p]);
+      addLog(`Auto-Craft SUCCESS! Found ${targetAffixGroup} T${minTier} in ${att} rolls. (Spent ${formatLargeNumber(att * costPerRoll)} Gold)`);
+    } else {
+      const reason = curG < costPerRoll ? "Out of Gold" : "Reached 1000 rolls limit";
+      addLog(`Auto-Craft FAILED (${reason}): Tried ${att} times for ${targetAffixGroup} T${minTier}.`);
+    }
   };
+
+  const renderAffixes = (item: Item) => (
+    <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '4px', borderTop: '1px solid #334155', paddingTop: '4px' }}>
+      {[...item.prefixes, ...item.suffixes].map(a => (
+        <div key={a.id}>• {a.name}: +{a.value}{a.statKey === 'dr' ? '%' : ''} {a.statKey.toUpperCase()} (T{a.tier})</div>
+      ))}
+    </div>
+  );
+
   const handleEquipSkill = (id: string) => { if (equippedSkillIds.length < 3 && !equippedSkillIds.includes(id)) { setEquippedSkillIds(p => [...p, id]); setSkillCooldowns(p => ({ ...p, [id]: 0 })); } };
   const handleUnequipSkill = (id: string) => setEquippedSkillIds(p => p.filter(sid => sid !== id));
   const handleAllocatePassive = (id: string) => { if (isNodeAllocatable(id, allocatedPassiveNodes, unspentPassivePoints)) setAllocatedPassiveNodes(p => [...p, id]); };
@@ -481,8 +505,25 @@ const IdleGame: React.FC = () => {
 
           {currentTab === 'INVENTORY' ? (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '15px' }}>{(['WEAPON', 'ARMOR', 'ACCESSORY'] as ItemSlot[]).map(s => <div key={s} style={{ border: '1px solid #334155', padding: '8px', backgroundColor: '#0f172a', fontSize: '0.7rem' }}><div style={{ color: '#64748b' }}>{s}</div>{equipment[s] ? <div onClick={() => handleUnequip(s)} style={{ color: '#fbbf24', cursor: 'pointer' }}>{equipment[s]?.name}</div> : 'Empty'}</div>)}</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', height: '300px', overflowY: 'auto' }}>{inventory.map(item => <div key={item.id} style={{ border: '1px solid #334155', padding: '8px', backgroundColor: '#0f172a' }}><div style={{ color: '#fbbf24', fontSize: '0.75rem' }}>{item.name} (iLv {item.itemLevel})</div><div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}><button onClick={() => handleEquip(item)} style={{ flex: 1, backgroundColor: '#059669', border: 'none', color: 'white', fontSize: '0.6rem', padding: '2px' }}>Equip</button><button onClick={() => handleSalvage(item)} style={{ flex: 1, backgroundColor: '#4b5563', border: 'none', color: 'white', fontSize: '0.6rem', padding: '2px' }}>Salvage</button></div></div>)}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '15px' }}>{(['WEAPON', 'ARMOR', 'ACCESSORY'] as ItemSlot[]).map(s => {
+                const itm = equipment[s];
+                return (
+                  <div key={s} style={{ border: '1px solid #334155', padding: '8px', backgroundColor: '#0f172a', fontSize: '0.7rem' }}>
+                    <div style={{ color: '#64748b' }}>{s}</div>
+                    {itm ? <div onClick={() => handleUnequip(s)} style={{ color: '#fbbf24', cursor: 'pointer' }} title={itm.prefixes.concat(itm.suffixes).map(a => `${a.name}: +${a.value}`).join('\n')}>{itm.name}</div> : 'Empty'}
+                  </div>
+                );
+              })}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', height: '300px', overflowY: 'auto' }}>{inventory.map(item => (
+                <div key={item.id} style={{ border: '1px solid #334155', padding: '8px', backgroundColor: '#0f172a' }}>
+                  <div style={{ color: '#fbbf24', fontSize: '0.75rem', fontWeight: 'bold' }}>{item.name} (iLv {item.itemLevel})</div>
+                  {renderAffixes(item)}
+                  <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                    <button onClick={() => handleEquip(item)} style={{ flex: 1, backgroundColor: '#059669', border: 'none', color: 'white', fontSize: '0.6rem', padding: '2px', cursor: 'pointer' }}>Equip</button>
+                    <button onClick={() => handleSalvage(item)} style={{ flex: 1, backgroundColor: '#4b5563', border: 'none', color: 'white', fontSize: '0.6rem', padding: '2px', cursor: 'pointer' }}>Salvage</button>
+                  </div>
+                </div>
+              ))}</div>
             </>
           ) : currentTab === 'PASSIVES' ? (
             <div style={{ position: 'relative', width: '100%', height: '400px', backgroundColor: '#020617', overflow: 'hidden', border: '1px solid #334155', cursor: isDragging ? 'grabbing' : 'grab' }} onMouseDown={(e) => { setIsDragging(true); setLastMousePos({ x: e.clientX, y: e.clientY }); }} onMouseMove={(e) => { if (!isDragging) return; setPanOffset(p => ({ x: p.x + (e.clientX - lastMousePos.x), y: p.y + (e.clientY - lastMousePos.y) })); setLastMousePos({ x: e.clientX, y: e.clientY }); }} onMouseUp={() => setIsDragging(false)} onMouseLeave={() => setIsDragging(false)}>
