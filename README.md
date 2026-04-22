@@ -1,73 +1,60 @@
-# React + TypeScript + Vite
+# Idle Exile - Project Overview
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+An advanced Idle ARPG built with React, TypeScript, and Vite. This project simulates the core progression loops of modern ARPGs (like Path of Exile) in a streamlined, automated environment.
 
-Currently, two official plugins are available:
+## 🕹️ Core Gameplay Systems
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+### 1. Combat & Scaling
+- **Idle Combat Loop**: Fully automated real-time combat with monster respawn delays and zone-based scaling.
+- **Dynamic Stats**: Player power is derived from Base Stats (level), Equipment Affixes, and Passive Skill Tree nodes.
+- **Leveling System**: Exp-based progression for both the Player and equipped Active Skills.
 
-## React Compiler
+### 2. Loot & Affix Engine (`src/utils/loot.ts`)
+- **Procedural Generation**: Items drop with varying rarities (Normal, Magic, Rare).
+- **Affix Database**: A weighted system for rolling Prefixes and Suffixes.
+- **Dynamic Scaling**: Affix values and Item Levels scale with the Zone Level they dropped from.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 3. Visual Passive Skill Tree (`src/utils/passiveTree.ts`)
+- **Graph-Based Progression**: A connected adjacency-list structure with over 15+ nodes.
+- **Multiple Archetypes**: Dedicated start nodes for Warrior, Mage, and Ranger paths.
+- **Interactive Map**: A custom-built SVG and coordinate-based 2D map with panning/dragging functionality.
 
-## Expanding the ESLint configuration
+### 4. Active Skills System (`src/utils/skills.ts`)
+- **Burst Damage**: Powerful skills (e.g., Heavy Strike, Fireball) that fire automatically based on cooldowns.
+- **Skill Leveling**: Equipped skills gain a portion of monster EXP, increasing their damage multipliers over time.
+- **Visual Feedback**: Screen-shake/Hit-flash effects and a dedicated purple-themed combat log for skill casts.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### 5. Advanced Crafting System
+- **Manual Rolling**: Spend gold to roll random high-tier rare items.
+- **Auto-Crafting Loop**: A high-efficiency "resource sink" where the system rolls items repeatedly (up to 1000x) until a specific target affix and tier (T1-T3) are hit.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### 6. Automated Economy & Filter
+- **Customizable Loot Filter**: Define rules for specific rarities.
+- **Actions**: Automatically `KEEP` (inventory), `SALVAGE` (scrap), or `SELL` (gold) loot based on player-defined priority.
+- **Resource Recovery**: Salvaging items provides `Crafting Scrap`, used for late-game systems like Atlas modifications.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+### 7. Atlas & Zone Empowerment (`src/utils/atlas.ts`)
+- **Risk vs. Reward**: Roll "Zone Modifiers" using Scrap to increase monster HP/DPS in exchange for massive multipliers to EXP, Gold, and Loot Quantity.
+- **Resonance Tokens**: A kill-based currency consumed to activate Empowered states on new monster spawns.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### 8. Persistence & Offline Gains
+- **Auto-Save**: Serializes state to LocalStorage every 5 seconds.
+- **Offline Calculation**: Uses a "Time To Kill" (TTK) mathematical model to simulate kills, EXP, and loot accumulated while the browser is closed.
+
+## 🛠️ Technical Stack
+- **Framework**: React 18+
+- **Language**: TypeScript (Strict Typing)
+- **Bundler**: Vite
+- **Styling**: Vanilla CSS with dynamic inline styles for performance-heavy components (like the Passive Tree).
+
+## 🚀 Development
+```bash
+npm install   # Install dependencies
+npm run dev    # Start development server
+npm run build  # Build for production
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## 🏗️ Project Structure
+- `src/components/`: Core UI logic (IdleGame.tsx handles the main loop).
+- `src/utils/`: Specialized logic engines (Combat, Loot, Skills, PassiveTree, Atlas).
+- `src/assets/`: Static game assets.

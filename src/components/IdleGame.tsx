@@ -19,6 +19,8 @@ import {
   calculateSkillDamage 
 } from '../utils/skills';
 import type { PlayerSkill } from '../utils/skills';
+import { generateZoneModifiers, calculateZoneStats } from '../utils/atlas';
+import type { ZoneModifier } from '../utils/atlas';
 
 const ProgressBar = ({ value, max, color, label }: { value: number, max: number, color: string, label: string }) => (
   <div style={{ width: '100%', marginBottom: '10px' }}>
@@ -109,7 +111,7 @@ const IdleGame: React.FC = () => {
   const [inventory, setInventory] = useState<Item[]>([]);
   const [equipment, setEquipment] = useState<Record<ItemSlot, Item | null>>({ WEAPON: null, ARMOR: null, ACCESSORY: null });
   const [combatLogs, setCombatLogs] = useState<string[]>(["Game Started"]);
-  const [currentTab, setCurrentTab] = useState<'INVENTORY' | 'PASSIVES' | 'SKILLS' | 'FILTER'>('INVENTORY');
+  const [currentTab, setCurrentTab] = useState<'INVENTORY' | 'PASSIVES' | 'SKILLS' | 'FILTER' | 'ATLAS'>('INVENTORY');
   const [damageFlash, setDamageFlash] = useState(false);
   const [offlineRewards, setOfflineRewards] = useState<{ timeAway: number; exp: number; gold: number; scrap: number; kills: number; } | null>(null);
   
@@ -118,6 +120,11 @@ const IdleGame: React.FC = () => {
     { id: 1, rarity: "MAGIC", action: "SALVAGE" },
     { id: 2, rarity: "RARE", action: "KEEP" }
   ]);
+
+  // Zone Empowerment State
+  const [resonanceTokens, setResonanceTokens] = useState(0);
+  const [zoneModifiers, setZoneModifiers] = useState<ZoneModifier[]>([]);
+  const [isZoneEmpowered, setIsZoneEmpowered] = useState(false);
 
   const [targetAffixGroup, setTargetAffixGroup] = useState<string>(UNIQUE_AFFIX_GROUPS[0]);
   const [minTier, setMinTier] = useState<number>(1);
@@ -141,15 +148,17 @@ const IdleGame: React.FC = () => {
 
   const stateRef = useRef({ 
     playerLevel, currentExp, gold, craftingScrap, currentZoneLevel, allocatedPassiveNodes,
-    unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards
+    unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards,
+    resonanceTokens, zoneModifiers, isZoneEmpowered
   });
 
   useEffect(() => {
     stateRef.current = { 
       playerLevel, currentExp, gold, craftingScrap, currentZoneLevel, allocatedPassiveNodes,
-      unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards
+      unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards,
+      resonanceTokens, zoneModifiers, isZoneEmpowered
     };
-  }, [playerLevel, currentExp, gold, craftingScrap, currentZoneLevel, allocatedPassiveNodes, unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards]);
+  }, [playerLevel, currentExp, gold, craftingScrap, currentZoneLevel, allocatedPassiveNodes, unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards, resonanceTokens, zoneModifiers, isZoneEmpowered]);
 
   // --- HELPERS ---
   const addLog = (msg: string) => setCombatLogs(prev => [msg, ...prev].slice(0, 10));
@@ -160,17 +169,30 @@ const IdleGame: React.FC = () => {
       craftingScrap: stateRef.current.craftingScrap, currentZoneLevel: stateRef.current.currentZoneLevel,
       allocatedPassiveNodes: stateRef.current.allocatedPassiveNodes, unlockedSkills: stateRef.current.unlockedSkills,
       equippedSkillIds: stateRef.current.equippedSkillIds, inventory: stateRef.current.inventory,
-      equipment: stateRef.current.equipment, lastSaved: Date.now()
+      equipment: stateRef.current.equipment, filterRules: stateRef.current.filterRules,
+      resonanceTokens: stateRef.current.resonanceTokens, zoneModifiers: stateRef.current.zoneModifiers,
+      isZoneEmpowered: stateRef.current.isZoneEmpowered, lastSaved: Date.now()
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
   };
 
   const spawnMonster = (level: number) => {
     setIsRespawning(false);
-    const stats = getMonsterStats(baseMonsterConfig, level);
-    setCurrentEnemyHP(stats.baseEhp);
-    setCurrentEnemyMaxHP(stats.baseEhp);
-    addLog(`Fighting Lv ${level} Monster`);
+    const s = stateRef.current;
+    const baseStats = getMonsterStats(baseMonsterConfig, level);
+    
+    let hp = baseStats.baseEhp;
+    let dps = baseStats.baseDps;
+
+    if (s.isZoneEmpowered && s.resonanceTokens > 0) {
+      const z = calculateZoneStats(s.zoneModifiers);
+      hp *= z.enemyHP;
+      dps *= z.enemyDPS;
+    }
+
+    setCurrentEnemyHP(hp);
+    setCurrentEnemyMaxHP(hp);
+    addLog(`Fighting Lv ${level} ${s.isZoneEmpowered && s.resonanceTokens > 0 ? 'EMPOWERED ' : ''}Monster`);
   };
 
   const claimOfflineRewards = () => {
@@ -185,10 +207,11 @@ const IdleGame: React.FC = () => {
     addLog(`Claimed offline rewards!`);
   };
 
-  const processLootDrop = (rarity: string, itemLevel: number) => {
+  const processLootDrop = (rarity: string, itemLevel: number, multiplier: number = 1) => {
+    const chance = 0.3 * multiplier;
+    if (Math.random() > chance) return;
+
     const item = generateItem(rarity as any, itemLevel);
-    
-    // Find matching rule
     const rule = filterRules.find(r => r.rarity === item.rarity) || { action: 'KEEP' };
 
     if (rule.action === 'SALVAGE') {
@@ -205,62 +228,77 @@ const IdleGame: React.FC = () => {
     }
   };
 
-  const handleAddFilterRule = (rarity: string, action: string) => {
-    setFilterRules(prev => {
-      const filtered = prev.filter(r => r.rarity !== rarity);
-      return [...filtered, { id: Date.now(), rarity, action }];
-    });
-  };
-
-  const handleRemoveFilterRule = (id: number) => {
-    setFilterRules(prev => prev.filter(r => r.id !== id));
-  };
-
   const handleMonsterDeath = (s: any, earnedExp: number, earnedGold: number) => {
+    let expMult = 1;
+    let goldMult = 1;
+    let lootMult = 1;
+
+    if (s.isZoneEmpowered && s.resonanceTokens > 0) {
+      const z = calculateZoneStats(s.zoneModifiers);
+      expMult = z.expMult;
+      goldMult = z.goldMult;
+      lootMult = z.lootQty;
+      setResonanceTokens(prev => prev - 1);
+    }
+
+    const finalExp = earnedExp * expMult;
+    const finalGold = earnedGold * goldMult;
+
+    // Token Drop Chance (10%)
+    if (Math.random() < 0.10) {
+      setResonanceTokens(prev => prev + 1);
+      addLog("Monster dropped a Resonance Token!");
+    }
+
     setUnlockedSkills(prev => prev.map(sk => {
       if (!s.equippedSkillIds.includes(sk.id)) return sk;
-      let newSkExp = sk.currentExp + earnedExp * 0.5;
+      let newSkExp = sk.currentExp + finalExp * 0.5;
       let newSkLevel = sk.level;
       let req = calculateSkillExpToNextLevel(sk.baseExpRequired, newSkLevel);
       while (newSkExp >= req) { newSkExp -= req; newSkLevel++; req = calculateSkillExpToNextLevel(sk.baseExpRequired, newSkLevel); }
       return { ...sk, level: newSkLevel, currentExp: newSkExp };
     }));
-    let newExp = s.currentExp + earnedExp;
+
+    let newExp = s.currentExp + finalExp;
     let newLevel = s.playerLevel;
     let req = calculateExpToNextLevel(newLevel);
     while (newExp >= req) { newExp -= req; newLevel++; req = calculateExpToNextLevel(newLevel); }
+    
     if (newLevel !== s.playerLevel) {
       const pStats = calculatePlayerStats(newLevel); const gStats = calculateItemStats(Object.values(equipment));
       const psStats = calculatePassiveStats(allocatedPassiveNodes);
       setCurrentPlayerHP(pStats.hp + gStats.hp + psStats.hp); setPlayerLevel(newLevel);
     }
-    setCurrentExp(newExp); setGold(s.gold + earnedGold);
-    if (Math.random() < 0.3) processLootDrop(Math.random() < 0.7 ? 'MAGIC' : 'RARE', s.currentZoneLevel);
-    setIsRespawning(true); setCurrentEnemyHP(0);
-    setTimeout(() => { spawnMonster(stateRef.current.currentZoneLevel + 1); setCurrentZoneLevel(prev => prev + 1); }, 1000);
-  };
+    
+    setCurrentExp(newExp);
+    setGold(s.gold + finalGold);
+    processLootDrop(Math.random() < 0.7 ? 'MAGIC' : 'RARE', s.currentZoneLevel, lootMult);
 
-  // --- EFFECTS ---
-  useEffect(() => {
-    const timer = setInterval(saveGame, 5000);
-    return () => clearInterval(timer);
-  }, []);
+    setIsRespawning(true);
+    setCurrentEnemyHP(0);
+    setTimeout(() => {
+      const cur = stateRef.current;
+      const nextZone = cur.currentZoneLevel + 1;
+      setCurrentZoneLevel(nextZone);
+      spawnMonster(nextZone);
+    }, 1000);
+  };
 
   useEffect(() => {
     const saved = localStorage.getItem(SAVE_KEY);
     if (saved) {
       const data = JSON.parse(saved);
       setPlayerLevel(data.playerLevel); setCurrentExp(data.currentExp); setGold(data.gold);
-      setCraftingScrap(data.craftingScrap); setCurrentZoneLevel(data.currentZoneLevel);
-      setAllocatedPassiveNodes(data.allocatedPassiveNodes); setUnlockedSkills(data.unlockedSkills);
-      setEquippedSkillIds(data.equippedSkillIds); setInventory(data.inventory); setEquipment(data.equipment);
+      setCraftingScrap(data.craftingScrap || 0); setCurrentZoneLevel(data.currentZoneLevel);
+      setAllocatedPassiveNodes(data.allocatedPassiveNodes || []); setUnlockedSkills(data.unlockedSkills || []);
+      setEquippedSkillIds(data.equippedSkillIds || []); setInventory(data.inventory || []); setEquipment(data.equipment || {});
+      setFilterRules(data.filterRules || [{ id: 1, rarity: "MAGIC", action: "SALVAGE" }, { id: 2, rarity: "RARE", action: "KEEP" }]);
+      setResonanceTokens(data.resonanceTokens || 0); setZoneModifiers(data.zoneModifiers || []); setIsZoneEmpowered(data.isZoneEmpowered || false);
+
       const secondsAway = Math.floor((Date.now() - data.lastSaved) / 1000);
       if (secondsAway > 60) {
         const monster = getMonsterStats(baseMonsterConfig, data.currentZoneLevel);
-        const pStats = calculatePlayerStats(data.playerLevel);
-        const gearS = calculateItemStats(Object.values(data.equipment as Record<ItemSlot, Item | null>));
-        const passS = calculatePassiveStats(data.allocatedPassiveNodes);
-        const ttk = Math.max(1, Math.ceil(monster.baseEhp / (pStats.dps + gearS.dps + passS.dps)));
+        const ttk = Math.max(1, Math.ceil(monster.baseEhp / calculatePlayerStats(data.playerLevel).dps));
         const totalKills = Math.floor(secondsAway / (ttk + 1));
         if (totalKills > 0) {
           const mult = Math.pow(1.1, data.currentZoneLevel - 1);
@@ -301,7 +339,7 @@ const IdleGame: React.FC = () => {
         const mult = Math.pow(1.1, s.currentZoneLevel - 1);
         handleMonsterDeath(s, monster.baseExp * mult, monster.baseGold * mult);
       } else {
-        const mDmg = monster.baseDps * (1 - s.finalStats.damageReduction);
+        const mDmg = (s.isZoneEmpowered && s.resonanceTokens > 0) ? (monster.baseDps * calculateZoneStats(s.zoneModifiers).enemyDPS * (1 - s.finalStats.damageReduction)) : (monster.baseDps * (1 - s.finalStats.damageReduction));
         const nextPHP = Math.max(0, s.currentPlayerHP - mDmg);
         if (nextPHP <= 0) {
           const prev = Math.max(1, s.currentZoneLevel - 1); setCurrentZoneLevel(prev);
@@ -312,7 +350,14 @@ const IdleGame: React.FC = () => {
     return () => clearInterval(tickInterval);
   }, [offlineRewards]);
 
-  // --- HANDLERS ---
+  const handleRollZone = () => {
+    if (craftingScrap >= 100) {
+      setCraftingScrap(prev => prev - 100);
+      setZoneModifiers(generateZoneModifiers());
+      addLog("Rolled new Zone Modifiers!");
+    }
+  };
+
   const handleRollItem = () => { if (gold >= 100) { setGold(prev => prev - 100); processLootDrop('RARE', playerLevel); } };
   const handleEquip = (itm: Item) => {
     const cur = equipment[itm.slot]; setEquipment(prev => ({ ...prev, [itm.slot]: itm }));
@@ -337,7 +382,6 @@ const IdleGame: React.FC = () => {
   const handleUnequipSkill = (id: string) => setEquippedSkillIds(p => p.filter(sid => sid !== id));
   const handleAllocatePassive = (id: string) => { if (isNodeAllocatable(id, allocatedPassiveNodes, unspentPassivePoints)) setAllocatedPassiveNodes(p => [...p, id]); };
 
-  // --- RENDER ---
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '20px', color: '#e2e8f0' }}>
       <style>{`
@@ -347,7 +391,6 @@ const IdleGame: React.FC = () => {
         .log-skill { background-color: rgba(124, 58, 237, 0.1); border-left-color: #7c3aed; color: #a78bfa; font-weight: bold; }
         .log-normal { border-left-color: #334155; }
       `}</style>
-
       <section style={{ backgroundColor: '#1e293b', padding: '20px', borderRadius: '12px', border: '1px solid #334155', marginBottom: '20px' }}>
         <div style={{ height: '120px', overflowY: 'auto', marginBottom: '20px', padding: '10px', backgroundColor: '#0f172a', borderRadius: '8px', fontSize: '0.85rem', display: 'flex', flexDirection: 'column-reverse' }}>
           {combatLogs.map((log, i) => <div key={i} className={log.includes('>>>') ? 'log-entry log-skill' : 'log-entry log-normal'}>{log}</div>)}
@@ -357,31 +400,17 @@ const IdleGame: React.FC = () => {
           <div className={damageFlash ? 'hit-flash' : ''}><ProgressBar value={currentEnemyHP} max={currentEnemyMaxHP} color="#ef4444" label={isRespawning ? "Respawning..." : "Monster"} /></div>
         </div>
       </section>
-
       <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr 240px', gap: '20px' }}>
         <aside style={{ backgroundColor: '#1e293b', padding: '15px', borderRadius: '8px' }}>
           <h3>Stats</h3>
           <p>Lv: {playerLevel} | Gold: {formatLargeNumber(gold)}</p>
           <p>Scrap: {formatLargeNumber(craftingScrap)}</p>
+          <p>Tokens: {resonanceTokens}</p>
           <div style={{ fontSize: '0.8rem', lineHeight: '1.6' }}><div>DPS: {formatLargeNumber(finalStats.dps)} | HP: {formatLargeNumber(finalStats.hp)}</div><div>DR: {(finalStats.damageReduction * 100).toFixed(0)}%</div></div>
           <ProgressBar value={currentExp} max={expToNextLevel} color="#3b82f6" label="EXP" />
         </aside>
-
         <main style={{ backgroundColor: '#1e293b', padding: '15px', borderRadius: '8px' }}>
-          <div style={{ display: 'flex', gap: '5px', marginBottom: '15px' }}>
-            {['INVENTORY', 'PASSIVES', 'SKILLS', 'FILTER'].map(t => (
-              <button 
-                key={t} 
-                onClick={() => setCurrentTab(t as any)} 
-                style={{ 
-                  padding: '6px 12px', borderRadius: '4px', border: 'none', cursor: 'pointer', 
-                  backgroundColor: currentTab === t ? '#3b82f6' : '#334155', color: 'white', fontSize: '0.8rem' 
-                }}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
+          <div style={{ display: 'flex', gap: '5px', marginBottom: '15px' }}>{['INVENTORY', 'PASSIVES', 'SKILLS', 'FILTER', 'ATLAS'].map(t => <button key={t} onClick={() => setCurrentTab(t as any)} style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: currentTab === t ? '#3b82f6' : '#334155', color: 'white', fontSize: '0.8rem' }}>{t}</button>)}</div>
           {currentTab === 'INVENTORY' ? (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '15px' }}>{(['WEAPON', 'ARMOR', 'ACCESSORY'] as ItemSlot[]).map(s => <div key={s} style={{ border: '1px solid #334155', padding: '8px', backgroundColor: '#0f172a', fontSize: '0.7rem' }}><div style={{ color: '#64748b' }}>{s}</div>{equipment[s] ? <div onClick={() => handleUnequip(s)} style={{ color: '#fbbf24', cursor: 'pointer' }}>{equipment[s]?.name}</div> : 'Empty'}</div>)}</div>
@@ -397,64 +426,38 @@ const IdleGame: React.FC = () => {
           ) : currentTab === 'FILTER' ? (
             <div style={{ height: '400px', overflowY: 'auto' }}>
               <h3 style={{ fontSize: '1rem', marginBottom: '10px' }}>Custom Loot Filter</h3>
-
-              <div style={{ 
-                backgroundColor: '#0f172a', padding: '15px', borderRadius: '8px', 
-                marginBottom: '20px', border: '1px solid #334155' 
-              }}>
+              <div style={{ backgroundColor: '#0f172a', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #334155' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '10px', alignItems: 'end' }}>
-                  <div>
-                    <label style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>IF RARITY IS:</label>
-                    <select id="rarity-select" style={{ width: '100%', padding: '5px', backgroundColor: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '4px' }}>
-                      <option value="NORMAL">NORMAL</option>
-                      <option value="MAGIC">MAGIC</option>
-                      <option value="RARE">RARE</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>THEN DO:</label>
-                    <select id="action-select" style={{ width: '100%', padding: '5px', backgroundColor: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '4px' }}>
-                      <option value="KEEP">KEEP</option>
-                      <option value="SALVAGE">SALVAGE</option>
-                      <option value="SELL_FOR_GOLD">SELL FOR GOLD</option>
-                    </select>
-                  </div>
-                  <button 
-                    onClick={() => {
-                      const r = (document.getElementById('rarity-select') as HTMLSelectElement).value;
-                      const a = (document.getElementById('action-select') as HTMLSelectElement).value;
-                      handleAddFilterRule(r, a);
-                    }}
-                    style={{ padding: '6px 15px', backgroundColor: '#3b82f6', border: 'none', borderRadius: '4px', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}
-                  >
-                    Add Rule
-                  </button>
+                  <div><label style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>IF RARITY IS:</label><select id="rarity-select" style={{ width: '100%', padding: '5px', backgroundColor: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '4px' }}><option value="NORMAL">NORMAL</option><option value="MAGIC">MAGIC</option><option value="RARE">RARE</option></select></div>
+                  <div><label style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>THEN DO:</label><select id="action-select" style={{ width: '100%', padding: '5px', backgroundColor: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '4px' }}><option value="KEEP">KEEP</option><option value="SALVAGE">SALVAGE</option><option value="SELL_FOR_GOLD">SELL FOR GOLD</option></select></div>
+                  <button onClick={() => { const r = (document.getElementById('rarity-select') as HTMLSelectElement).value; const a = (document.getElementById('action-select') as HTMLSelectElement).value; handleAddFilterRule(r, a); }} style={{ padding: '6px 15px', backgroundColor: '#3b82f6', border: 'none', borderRadius: '4px', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}>Add Rule</button>
                 </div>
               </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {filterRules.map(rule => (
-                  <div key={rule.id} style={{ 
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '10px 15px', backgroundColor: '#0f172a', borderRadius: '6px', borderLeft: '4px solid #3b82f6'
-                  }}>
-                    <span style={{ fontSize: '0.85rem' }}>
-                      IF <strong style={{ color: '#fbbf24' }}>{rule.rarity}</strong> THEN <strong style={{ color: '#10b981' }}>{rule.action.replace(/_/g, ' ')}</strong>
-                    </span>
-                    <button 
-                      onClick={() => handleRemoveFilterRule(rule.id)}
-                      style={{ backgroundColor: '#7f1d1d', border: 'none', color: 'white', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem' }}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                ))}
-                {filterRules.length === 0 && <div style={{ textAlign: 'center', color: '#64748b', marginTop: '20px' }}>No rules set. Default action: KEEP</div>}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>{filterRules.map(rule => (<div key={rule.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 15px', backgroundColor: '#0f172a', borderRadius: '6px', borderLeft: '4px solid #3b82f6' }}><span style={{ fontSize: '0.85rem' }}>IF <strong style={{ color: '#fbbf24' }}>{rule.rarity}</strong> THEN <strong style={{ color: '#10b981' }}>{rule.action.replace(/_/g, ' ')}</strong></span><button onClick={() => handleRemoveFilterRule(rule.id)} style={{ backgroundColor: '#7f1d1d', border: 'none', color: 'white', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem' }}>Delete</button></div>))}</div>
+            </div>
+          ) : currentTab === 'ATLAS' ? (
+            <div style={{ height: '400px', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h3 style={{ margin: 0 }}>Zone Empowerment</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Empower:</span>
+                  <input type="checkbox" checked={isZoneEmpowered} onChange={() => setIsZoneEmpowered(!isZoneEmpowered)} style={{ width: '20px', height: '20px', cursor: 'pointer' }} />
+                </div>
               </div>
+              <div style={{ backgroundColor: '#0f172a', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #334155' }}>
+                <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Current Tokens: <strong style={{ color: '#fbbf24' }}>{resonanceTokens}</strong></p>
+                <button onClick={handleRollZone} disabled={craftingScrap < 100} style={{ width: '100%', padding: '10px', backgroundColor: craftingScrap >= 100 ? '#4f46e5' : '#334155', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Roll Zone Modifiers (100 Scrap)</button>
+              </div>
+              <div>
+                <p style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: '10px' }}>Active Modifiers:</p>
+                {zoneModifiers.length > 0 ? zoneModifiers.map((mod, i) => (
+                  <div key={i} style={{ padding: '8px 12px', backgroundColor: '#0f172a', borderRadius: '6px', marginBottom: '5px', borderLeft: '3px solid #7c3aed', fontSize: '0.85rem' }}>{mod.text}</div>
+                )) : <p style={{ textAlign: 'center', color: '#475569', fontSize: '0.8rem' }}>No modifiers active. Roll to add risk and reward.</p>}
+              </div>
+              <div style={{ marginTop: '20px', fontSize: '0.7rem', color: '#64748b', fontStyle: 'italic' }}>* Empowerment consumes 1 Token per kill. Modifiers increase difficulty and rewards.</div>
             </div>
           ) : (
-            <div style={{ height: '400px', overflowY: 'auto' }}>
-{unlockedSkills.map(sk => { const isEq = equippedSkillIds.includes(sk.id); const cd = skillCooldowns[sk.id] || 0; return <div key={sk.id} style={{ backgroundColor: '#0f172a', padding: '10px', borderRadius: '6px', marginBottom: '8px', border: isEq ? '1px solid #3b82f6' : '1px solid #334155' }}><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}><span style={{ fontWeight: 'bold' }}>{sk.name} (Lv {sk.level})</span><button onClick={() => isEq ? handleUnequipSkill(sk.id) : handleEquipSkill(sk.id)} style={{ padding: '2px 8px', backgroundColor: isEq ? '#7f1d1d' : '#059669', border: 'none', color: 'white' }}>{isEq ? 'Unequip' : 'Equip'}</button></div><div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>CD: {sk.cooldownTicks}s | Cur: {cd}s</div><ProgressBar value={sk.currentExp} max={calculateSkillExpToNextLevel(sk.baseExpRequired, sk.level)} color="#8b5cf6" label="Skill EXP" /></div>; })}</div>
+            <div style={{ height: '400px', overflowY: 'auto' }}>{unlockedSkills.map(sk => { const isEq = equippedSkillIds.includes(sk.id); const cd = skillCooldowns[sk.id] || 0; return <div key={sk.id} style={{ backgroundColor: '#0f172a', padding: '10px', borderRadius: '6px', marginBottom: '8px', border: isEq ? '1px solid #3b82f6' : '1px solid #334155' }}><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}><span style={{ fontWeight: 'bold' }}>{sk.name} (Lv {sk.level})</span><button onClick={() => isEq ? handleUnequipSkill(sk.id) : handleEquipSkill(sk.id)} style={{ padding: '2px 8px', backgroundColor: isEq ? '#7f1d1d' : '#059669', border: 'none', color: 'white' }}>{isEq ? 'Unequip' : 'Equip'}</button></div><div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>CD: {sk.cooldownTicks}s | Cur: {cd}s</div><ProgressBar value={sk.currentExp} max={calculateSkillExpToNextLevel(sk.baseExpRequired, sk.level)} color="#8b5cf6" label="Skill EXP" /></div>; })}</div>
           )}
         </main>
         <aside style={{ backgroundColor: '#1e293b', padding: '15px', borderRadius: '8px' }}>
