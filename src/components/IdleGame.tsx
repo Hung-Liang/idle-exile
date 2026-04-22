@@ -607,6 +607,7 @@ const IdleGame: React.FC = () => {
                     {!stagedMap.isCorrupted && <button onClick={handleCorruptMap} disabled={corruptionCatalysts <= 0} style={{ padding: '4px 10px', backgroundColor: corruptionCatalysts > 0 ? '#ef4444' : '#334155', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 'bold' }}>Corrupt (1 Cat)</button>}
                   </div>
                   {stagedMap.modifiers.map((m, i) => <div key={i} style={{ fontSize: '0.85rem', marginBottom: '4px' }}>• {m.text}</div>)}
+                  {stagedMap.isCorrupted && <div style={{ fontSize: '0.85rem', marginBottom: '4px', color: '#fca5a5', fontWeight: 'bold' }}>• Instability Bonus: +{stagedMap.instability * 5}% Difficulty & Rewards</div>}
                   <button onClick={handleOpenMap} disabled={!!activeMap} style={{ marginTop: '15px', width: '100%', padding: '10px', backgroundColor: activeMap ? '#334155' : (stagedMap.isCorrupted ? '#b91c1c' : '#7c3aed'), color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>{activeMap ? 'Map Active' : 'Open Map'}</button>
                 </div>
               )}
@@ -615,6 +616,7 @@ const IdleGame: React.FC = () => {
                   <h4 style={{ margin: '0 0 10px 0', color: activeMap.isCorrupted ? '#ef4444' : '#34d399' }}>{activeMap.isCorrupted ? `CORRUPTED (Instability: ${activeMap.instability})` : 'Active Map'}</h4>
                   <div style={{ fontSize: '1.2rem', fontWeight: 'bold', marginBottom: '10px' }}>{activeMap.remainingKills} Kills Left</div>
                   {activeMap.modifiers.map((m, i) => <div key={i} style={{ fontSize: '0.85rem', marginBottom: '4px' }}>• {m.text}</div>)}
+                  {activeMap.isCorrupted && <div style={{ fontSize: '0.85rem', marginBottom: '4px', color: '#fca5a5', fontWeight: 'bold' }}>• Instability Bonus: +{activeMap.instability * 5}% Difficulty & Rewards</div>}
                 </div>
               )}
             </div>
