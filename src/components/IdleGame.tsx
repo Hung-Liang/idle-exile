@@ -537,7 +537,7 @@ const IdleGame: React.FC = () => {
         <aside style={{ backgroundColor: '#1e293b', padding: '15px', borderRadius: '8px' }}>
           <h3>Stats</h3>
           <p>Lv: {playerLevel} | Gold: {formatLargeNumber(gold)}</p>
-          <p>Scrap: {formatLargeNumber(craftingScrap)} | Cats: {corruptionCatalysts}</p>
+          <p>Scrap: {formatLargeNumber(craftingScrap)} | Catalysts: {corruptionCatalysts}</p>
           <div style={{ fontSize: '0.8rem', lineHeight: '1.6' }}>
             <div>DPS: {formatLargeNumber(finalStats.dps)} | HP: {formatLargeNumber(finalStats.hp)}</div>
             <div>AS: {finalStats.attackSpeed.toFixed(1)} | Regen: 5%/s</div>
@@ -604,7 +604,7 @@ const IdleGame: React.FC = () => {
                 <div style={{ backgroundColor: stagedMap.isCorrupted ? 'rgba(127, 29, 29, 0.2)' : 'rgba(124, 58, 237, 0.1)', padding: '15px', borderRadius: '8px', border: `1px solid ${stagedMap.isCorrupted ? '#ef4444' : '#7c3aed'}`, marginBottom: '20px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                     <h4 style={{ margin: 0, color: stagedMap.isCorrupted ? '#ef4444' : '#a78bfa' }}>{stagedMap.isCorrupted ? 'CORRUPTED MAP' : 'Staged Map'}</h4>
-                    {!stagedMap.isCorrupted && <button onClick={handleCorruptMap} disabled={corruptionCatalysts <= 0} style={{ padding: '4px 10px', backgroundColor: corruptionCatalysts > 0 ? '#ef4444' : '#334155', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 'bold' }}>Corrupt (1 Cat)</button>}
+                    {!stagedMap.isCorrupted && <button onClick={handleCorruptMap} disabled={corruptionCatalysts <= 0} style={{ padding: '4px 10px', backgroundColor: corruptionCatalysts > 0 ? '#ef4444' : '#334155', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 'bold' }}>Corrupt (1 Catalyst)</button>}
                   </div>
                   {stagedMap.modifiers.map((m, i) => <div key={i} style={{ fontSize: '0.85rem', marginBottom: '4px' }}>• {m.text}</div>)}
                   {stagedMap.isCorrupted && <div style={{ fontSize: '0.85rem', marginBottom: '4px', color: '#fca5a5', fontWeight: 'bold' }}>• Instability Bonus: +{stagedMap.instability * 5}% Difficulty & Rewards</div>}
