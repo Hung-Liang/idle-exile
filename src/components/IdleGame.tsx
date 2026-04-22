@@ -458,6 +458,20 @@ const IdleGame: React.FC = () => {
     setCurrentPlayerHP(p => Math.min(p, calculatePlayerStats(playerLevel).hp + calculateItemStats(Object.values({ ...equipment, [s]: null })).hp));
   };
   const handleSalvage = (itm: Item) => { setInventory(prev => prev.filter(x => x.id !== itm.id)); setCraftingScrap(p => p + itm.itemLevel * (itm.rarity === 'RARE' ? 5 : 2)); };
+  const handleSalvageAll = () => {
+    if (inventory.length === 0) return;
+    const totalScrap = inventory.reduce((sum, itm) => sum + itm.itemLevel * (itm.rarity === 'RARE' ? 5 : 2), 0);
+    setCraftingScrap(p => p + totalScrap);
+    setInventory([]);
+    addLog(`Salvaged all items for ${totalScrap} Scrap.`);
+  };
+  const handleSellAll = () => {
+    if (inventory.length === 0) return;
+    const totalGold = inventory.reduce((sum, itm) => sum + itm.itemLevel * (itm.rarity === 'RARE' ? 25 : 10), 0);
+    setGold(p => p + totalGold);
+    setInventory([]);
+    addLog(`Sold all items for ${formatLargeNumber(totalGold)} Gold.`);
+  };
   const handleAutoCraft = () => {
     let att = 0; let curG = gold; let ok = false; let res: Item | null = null;
     while (att < 1000 && curG >= 500) {
@@ -554,7 +568,7 @@ const IdleGame: React.FC = () => {
 
           {currentTab === 'INVENTORY' ? (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '15px' }}>{(['WEAPON', 'ARMOR', 'ACCESSORY'] as ItemSlot[]).map(s => {
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '10px' }}>{(['WEAPON', 'ARMOR', 'ACCESSORY'] as ItemSlot[]).map(s => {
                 const itm = equipment[s];
                 return (
                   <div key={s} style={{ border: '1px solid #334155', padding: '8px', backgroundColor: '#0f172a', fontSize: '0.7rem' }}>
@@ -563,6 +577,10 @@ const IdleGame: React.FC = () => {
                   </div>
                 );
               })}</div>
+              <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+                <button onClick={handleSalvageAll} disabled={inventory.length === 0} style={{ flex: 1, padding: '8px', backgroundColor: inventory.length > 0 ? '#4b5563' : '#334155', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}>Salvage All</button>
+                <button onClick={handleSellAll} disabled={inventory.length === 0} style={{ flex: 1, padding: '8px', backgroundColor: inventory.length > 0 ? '#b45309' : '#334155', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}>Sell All</button>
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', height: '300px', overflowY: 'auto' }}>{inventory.map(item => (
                 <div key={item.id} style={{ border: '1px solid #334155', padding: '10px', backgroundColor: '#0f172a' }}>
                   <div style={{ color: '#fbbf24', fontSize: '0.75rem', fontWeight: 'bold' }}>{item.name} (iLv {item.itemLevel})</div>
