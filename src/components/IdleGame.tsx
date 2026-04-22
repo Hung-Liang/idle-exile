@@ -447,6 +447,11 @@ const IdleGame: React.FC = () => {
       addLog(`Map Opened!`);
     }
   };
+  const handleEscapeMap = () => {
+    setActiveMap(null);
+    addLog("Escaped from Map. Reverting to normal farming.");
+    spawnMonster(targetFarmingZone);
+  };
   const handleEquip = (itm: Item) => {
     const cur = equipment[itm.slot]; setEquipment(prev => ({ ...prev, [itm.slot]: itm }));
     setInventory(prev => { const f = prev.filter(x => x.id !== itm.id); return cur ? [cur, ...f] : f; });
@@ -679,6 +684,7 @@ const IdleGame: React.FC = () => {
                   <div style={{ fontSize: '1.2rem', fontWeight: 'bold', marginBottom: '10px' }}>{activeMap.remainingKills} Kills Left</div>
                   {activeMap.modifiers.map((m, i) => <div key={i} style={{ fontSize: '0.85rem', marginBottom: '4px' }}>• {renderDynamicModifier(m.text, activeMap.instability, activeMap.isCorrupted)}</div>)}
                   {activeMap.isCorrupted && <div style={{ fontSize: '0.85rem', marginBottom: '4px', color: '#fca5a5', fontWeight: 'bold' }}>• Instability Bonus: +{activeMap.instability * 5}% Difficulty & Rewards</div>}
+                  <button onClick={handleEscapeMap} style={{ marginTop: '15px', width: '100%', padding: '8px', backgroundColor: '#475569', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}>Escape Map</button>
                 </div>
               )}
             </div>
