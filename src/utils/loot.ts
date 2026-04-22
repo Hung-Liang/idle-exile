@@ -45,6 +45,8 @@ export const AFFIX_DATABASE: Affix[] = [
   { id: 's_all_res_t1', name: 'of Protection', type: 'SUFFIX', group: 'all_res', statKey: 'dr', value: 0.08, weight: 15, tier: 1 },
 ];
 
+export const UNIQUE_AFFIX_GROUPS = Array.from(new Set(AFFIX_DATABASE.map(a => a.group)));
+
 const getRandomByWeight = (affixes: Affix[]): Affix => {
   const totalWeight = affixes.reduce((sum, a) => sum + a.weight, 0);
   let random = Math.random() * totalWeight;

@@ -6,7 +6,7 @@ import {
   calculatePlayerStats,
   getMonsterStats
 } from '../utils/combat';
-import { generateItem, calculateItemStats } from '../utils/loot';
+import { generateItem, calculateItemStats, UNIQUE_AFFIX_GROUPS } from '../utils/loot';
 import type { Item, ItemSlot } from '../utils/loot';
 import { 
   PASSIVE_TREE, 
@@ -143,6 +143,10 @@ const IdleGame: React.FC = () => {
   // Display State
   const [lastLog, setLastLog] = useState<string>("Game Started");
   const [currentTab, setCurrentTab] = useState<'INVENTORY' | 'PASSIVES'>('INVENTORY');
+
+  // Auto-Crafting State
+  const [targetAffixGroup, setTargetAffixGroup] = useState<string>(UNIQUE_AFFIX_GROUPS[0]);
+  const [minTier, setMinTier] = useState<number>(1);
 
   // Panning State for Passive Tree (Initial offset to center view)
   const [panOffset, setPanOffset] = useState({ x: 50, y: 50 });
@@ -322,6 +326,41 @@ const IdleGame: React.FC = () => {
     setInventory(prev => prev.filter(i => i.id !== item.id));
     const scrapGained = item.itemLevel * (item.rarity === 'RARE' ? 5 : 2);
     setCraftingScrap(prev => prev + scrapGained);
+  };
+
+  const handleAutoCraft = () => {
+    let attempts = 0;
+    const maxAttempts = 1000;
+    const costPerRoll = 500;
+    let currentGold = gold;
+    let success = false;
+    let foundItem: Item | null = null;
+
+    while (attempts < maxAttempts && currentGold >= costPerRoll) {
+      attempts++;
+      currentGold -= costPerRoll;
+      
+      const newItem = generateItem('RARE', currentZoneLevel);
+      const allAffixes = [...newItem.prefixes, ...newItem.suffixes];
+      
+      const hasTarget = allAffixes.some(a => a.group === targetAffixGroup && a.tier <= minTier);
+      
+      if (hasTarget) {
+        success = true;
+        foundItem = newItem;
+        break;
+      }
+    }
+
+    setGold(currentGold);
+    if (success && foundItem) {
+      setInventory(prev => [foundItem!, ...prev]);
+      setLastLog(`Auto-Craft SUCCESS! Took ${attempts} rolls (Cost: ${attempts * costPerRoll} Gold).`);
+    } else if (attempts >= maxAttempts) {
+      setLastLog(`Auto-Craft FAILED: Reached max attempts (${maxAttempts}).`);
+    } else {
+      setLastLog(`Auto-Craft FAILED: Out of Gold after ${attempts} rolls.`);
+    }
   };
 
   const handleAllocatePassive = (nodeId: string) => {
@@ -521,18 +560,53 @@ const IdleGame: React.FC = () => {
 
         {/* Actions */}
         <aside style={{ backgroundColor: '#1e293b', padding: '15px', borderRadius: '8px' }}>
-          <h3>Crafting</h3>
+          <h3 style={{ borderBottom: '1px solid #334155', paddingBottom: '5px' }}>Crafting</h3>
+          
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>TARGET AFFIX GROUP</label>
+            <select 
+              value={targetAffixGroup} 
+              onChange={(e) => setTargetAffixGroup(e.target.value)}
+              style={{ width: '100%', padding: '8px', backgroundColor: '#0f172a', color: 'white', border: '1px solid #334155', borderRadius: '4px', fontSize: '0.8rem' }}
+            >
+              {UNIQUE_AFFIX_GROUPS.map(group => (
+                <option key={group} value={group}>{group.toUpperCase().replace('_', ' ')}</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>MINIMUM TIER (T1 is Best)</label>
+            <select 
+              value={minTier} 
+              onChange={(e) => setMinTier(Number(e.target.value))}
+              style={{ width: '100%', padding: '8px', backgroundColor: '#0f172a', color: 'white', border: '1px solid #334155', borderRadius: '4px', fontSize: '0.8rem' }}
+            >
+              <option value={3}>T3 or Better</option>
+              <option value={2}>T2 or Better</option>
+              <option value={1}>T1 Only</option>
+            </select>
+          </div>
+
           <button onClick={handleRollItem} disabled={gold < 100} style={{ 
-            width: '100%', padding: '15px', backgroundColor: gold >= 100 ? '#4f46e5' : '#334155', 
-            color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '1rem'
+            width: '100%', padding: '12px', backgroundColor: gold >= 100 ? '#4f46e5' : '#334155', 
+            color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '10px'
           }}>
             Roll Rare (100g)
           </button>
+
+          <button onClick={handleAutoCraft} disabled={gold < 500} style={{ 
+            width: '100%', padding: '12px', backgroundColor: gold >= 500 ? '#7c3aed' : '#334155', 
+            color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem'
+          }}>
+            Auto-Craft (500g/roll)
+          </button>
+
           <div style={{ marginTop: '20px', fontSize: '0.8rem', color: '#94a3b8', borderTop: '1px solid #334155', paddingTop: '10px' }}>
             <strong>Game Info:</strong><br/>
             - Every kill grants EXP & Gold<br/>
-            - Dying reduces Zone Level<br/>
-            - Items give massive boosts!
+            - Items give massive boosts!<br/>
+            - Auto-craft rolls until target is hit (Max 1000 rolls).
           </div>
         </aside>
       </div>
