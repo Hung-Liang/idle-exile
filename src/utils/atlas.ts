@@ -1,13 +1,18 @@
 
 /**
- * Zone Empowerment System for Idle Exile.
- * Adheres to the rules defined in Chapter 12.
+ * Atlas and Mapping System for Idle Exile.
+ * Adheres to the rules defined in Chapter 12 and Mechanic A.
  */
 
 export interface ZoneModifier {
   stat: 'enemy_hp' | 'enemy_dps' | 'loot_quantity' | 'exp_multiplier' | 'gold_multiplier';
   value: number;
   text: string;
+}
+
+export interface MapInstance {
+  modifiers: ZoneModifier[];
+  remainingKills: number;
 }
 
 export const MODIFIER_POOL: ZoneModifier[] = [
@@ -29,7 +34,7 @@ export const generateZoneModifiers = (): ZoneModifier[] => {
   return shuffled.slice(0, count);
 };
 
-export const calculateZoneStats = (modifiers: ZoneModifier[]) => {
+export const calculateMapMultipliers = (modifiers: ZoneModifier[]) => {
   const totals = {
     enemyHP: 1,
     enemyDPS: 1,
