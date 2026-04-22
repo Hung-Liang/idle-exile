@@ -19,7 +19,7 @@ import {
   calculateSkillDamage 
 } from '../utils/skills';
 import type { PlayerSkill } from '../utils/skills';
-import { generateZoneModifiers, calculateMapMultipliers } from '../utils/atlas';
+import { generateZoneModifiers, calculateMapMultipliers, corruptModifiers } from '../utils/atlas';
 import type { ZoneModifier, MapInstance } from '../utils/atlas';
 
 const ProgressBar = ({ value, max, color, label }: { value: number, max: number, color: string, label: string }) => (
@@ -113,10 +113,11 @@ const IdleGame: React.FC = () => {
   const [highestUnlockedZone, setHighestUnlockedZone] = useState(1);
   const [targetFarmingZone, setTargetFarmingZone] = useState(1);
 
-  // Mapping System State (Mechanic A)
+  // Mapping System State (Mechanic A + C)
   const [activeMap, setActiveMap] = useState<MapInstance | null>(null);
-  const [stagedMap, setStagedMap] = useState<ZoneModifier[] | null>(null);
+  const [stagedMap, setStagedMap] = useState<MapInstance | null>(null);
   const [resonanceTokens, setResonanceTokens] = useState(0);
+  const [corruptionCatalysts, setCorruptionCatalysts] = useState(0);
 
   const [inventory, setInventory] = useState<Item[]>([]);
   const [equipment, setEquipment] = useState<Record<ItemSlot, Item | null>>({ WEAPON: null, ARMOR: null, ACCESSORY: null });
@@ -269,13 +270,32 @@ const IdleGame: React.FC = () => {
 
   const handleMonsterDeath = (s: any, earnedExp: number, earnedGold: number) => {
     let expMult = 1; let goldMult = 1; let lootMult = 1;
+    
+    // 2% Catalyst Drop Chance
+    if (Math.random() < 0.02) {
+      setCorruptionCatalysts(prev => prev + 1);
+      addLog(">>> Monster dropped a Corruption Catalyst! <<<");
+    }
+
     if (s.activeMap) {
       const z = calculateMapMultipliers(s.activeMap.modifiers);
-      expMult = z.expMult; goldMult = z.goldMult; lootMult = z.lootQty;
-      setActiveMap(prev => prev ? { ...prev, remainingKills: prev.remainingKills - 1 } : null);
+      
+      // Instability Multiplier: 1 + (instability * 0.05)
+      const instMult = s.activeMap.isCorrupted ? (1 + s.activeMap.instability * 0.05) : 1;
+      
+      expMult = z.expMult * instMult; 
+      goldMult = z.goldMult * instMult; 
+      lootMult = z.lootQty * instMult;
+      
+      setActiveMap(prev => prev ? { 
+        ...prev, 
+        remainingKills: prev.remainingKills - 1,
+        instability: prev.isCorrupted ? prev.instability + 1 : prev.instability
+      } : null);
+
       if (s.activeMap.remainingKills <= 1) {
         setActiveMap(null);
-        addLog("MAP COMPLETE! Reverting to normal farming.");
+        addLog(`MAP COMPLETE! Final Instability: ${s.activeMap.instability}. Reverting to normal farming.`);
       }
     } else {
       // Normal progression
@@ -359,16 +379,33 @@ const IdleGame: React.FC = () => {
   const handleRollZone = () => {
     if (craftingScrap >= 100) {
       setCraftingScrap(prev => prev - 100);
-      setStagedMap(generateZoneModifiers());
-      addLog("Rolled new Map Modifiers!");
+      setStagedMap({
+        modifiers: generateZoneModifiers(),
+        remainingKills: 100,
+        isCorrupted: false,
+        instability: 0
+      });
+      addLog("Rolled a new Map!");
+    }
+  };
+
+  const handleCorruptMap = () => {
+    if (stagedMap && !stagedMap.isCorrupted && corruptionCatalysts > 0) {
+      setCorruptionCatalysts(prev => prev - 1);
+      setStagedMap({
+        ...stagedMap,
+        isCorrupted: true,
+        modifiers: corruptModifiers(stagedMap.modifiers)
+      });
+      addLog(">>> MAP CORRUPTED: Modifiers empowered by 1.5x but instability enabled! <<<");
     }
   };
 
   const handleOpenMap = () => {
     if (stagedMap && !activeMap) {
-      setActiveMap({ modifiers: stagedMap, remainingKills: 100 });
+      setActiveMap({ ...stagedMap });
       setStagedMap(null);
-      addLog("Map Opened! 100 kills remaining.");
+      addLog(`Map Opened! ${stagedMap.isCorrupted ? 'CORRUPTED ' : ''}100 kills remaining.`);
     }
   };
 
@@ -563,13 +600,26 @@ const IdleGame: React.FC = () => {
               </div>
 
               {stagedMap && (
-                <div style={{ backgroundColor: 'rgba(124, 58, 237, 0.1)', padding: '15px', borderRadius: '8px', border: '1px solid #7c3aed', marginBottom: '20px' }}>
-                  <h4 style={{ margin: '0 0 10px 0', color: '#a78bfa' }}>Staged Map Modifiers:</h4>
-                  {stagedMap.map((m, i) => <div key={i} style={{ fontSize: '0.85rem', marginBottom: '4px' }}>• {m.text}</div>)}
+                <div style={{ backgroundColor: stagedMap.isCorrupted ? 'rgba(127, 29, 29, 0.2)' : 'rgba(124, 58, 237, 0.1)', padding: '15px', borderRadius: '8px', border: `1px solid ${stagedMap.isCorrupted ? '#ef4444' : '#7c3aed'}`, marginBottom: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <h4 style={{ margin: 0, color: stagedMap.isCorrupted ? '#ef4444' : '#a78bfa' }}>
+                      {stagedMap.isCorrupted ? 'CORRUPTED MAP' : 'Staged Map Modifiers'}
+                    </h4>
+                    {!stagedMap.isCorrupted && (
+                      <button 
+                        onClick={handleCorruptMap}
+                        disabled={corruptionCatalysts <= 0}
+                        style={{ padding: '4px 10px', backgroundColor: corruptionCatalysts > 0 ? '#ef4444' : '#334155', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 'bold' }}
+                      >
+                        Corrupt (1 Catalyst)
+                      </button>
+                    )}
+                  </div>
+                  {stagedMap.modifiers.map((m, i) => <div key={i} style={{ fontSize: '0.85rem', marginBottom: '4px' }}>• {m.text}</div>)}
                   <button 
                     onClick={handleOpenMap} 
                     disabled={!!activeMap}
-                    style={{ marginTop: '15px', width: '100%', padding: '10px', backgroundColor: activeMap ? '#334155' : '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+                    style={{ marginTop: '15px', width: '100%', padding: '10px', backgroundColor: activeMap ? '#334155' : (stagedMap.isCorrupted ? '#b91c1c' : '#7c3aed'), color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
                   >
                     {activeMap ? 'Map Already Active' : 'Open Map'}
                   </button>
@@ -577,8 +627,10 @@ const IdleGame: React.FC = () => {
               )}
 
               {activeMap && (
-                <div style={{ backgroundColor: 'rgba(5, 150, 105, 0.1)', padding: '15px', borderRadius: '8px', border: '1px solid #059669' }}>
-                  <h4 style={{ margin: '0 0 10px 0', color: '#34d399' }}>Active Map Status:</h4>
+                <div style={{ backgroundColor: activeMap.isCorrupted ? 'rgba(127, 29, 29, 0.2)' : 'rgba(5, 150, 105, 0.1)', padding: '15px', borderRadius: '8px', border: `1px solid ${activeMap.isCorrupted ? '#ef4444' : '#059669'}` }}>
+                  <h4 style={{ margin: '0 0 10px 0', color: activeMap.isCorrupted ? '#ef4444' : '#34d399' }}>
+                    {activeMap.isCorrupted ? `CORRUPTED MAP (Instability: ${activeMap.instability})` : 'Active Map Status'}
+                  </h4>
                   <div style={{ fontSize: '1.2rem', fontWeight: 'bold', marginBottom: '10px' }}>{activeMap.remainingKills} Kills Remaining</div>
                   {activeMap.modifiers.map((m, i) => <div key={i} style={{ fontSize: '0.85rem', marginBottom: '4px' }}>• {m.text}</div>)}
                 </div>

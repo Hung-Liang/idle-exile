@@ -1,7 +1,7 @@
 
 /**
  * Atlas and Mapping System for Idle Exile.
- * Adheres to the rules defined in Chapter 12 and Mechanic A.
+ * Adheres to the rules defined in Chapter 12, Mechanic A, and Mechanic C.
  */
 
 export interface ZoneModifier {
@@ -13,6 +13,8 @@ export interface ZoneModifier {
 export interface MapInstance {
   modifiers: ZoneModifier[];
   remainingKills: number;
+  isCorrupted: boolean;
+  instability: number;
 }
 
 export const MODIFIER_POOL: ZoneModifier[] = [
@@ -32,6 +34,14 @@ export const generateZoneModifiers = (): ZoneModifier[] => {
   const count = Math.floor(Math.random() * 3) + 2; // 2 to 4
   const shuffled = [...MODIFIER_POOL].sort(() => 0.5 - Math.random());
   return shuffled.slice(0, count);
+};
+
+export const corruptModifiers = (modifiers: ZoneModifier[]): ZoneModifier[] => {
+  return modifiers.map(m => ({
+    ...m,
+    value: Number((m.value * 1.5).toFixed(2)),
+    text: m.text.replace(/\+(\d+)%/, (_, val) => `+${Math.floor(Number(val) * 1.5)}%`)
+  }));
 };
 
 export const calculateMapMultipliers = (modifiers: ZoneModifier[]) => {
