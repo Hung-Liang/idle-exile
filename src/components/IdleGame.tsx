@@ -22,6 +22,8 @@ import type { PlayerSkill } from '../utils/skills';
 import { generateZoneModifiers, calculateMapMultipliers, corruptModifiers } from '../utils/atlas';
 import type { ZoneModifier, MapInstance } from '../utils/atlas';
 
+const TICK_RATE = 0.1; // 100ms
+
 const ProgressBar = ({ value, max, color, label }: { value: number, max: number, color: string, label: string }) => (
   <div style={{ width: '100%', marginBottom: '10px' }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '2px' }}>
@@ -34,7 +36,7 @@ const ProgressBar = ({ value, max, color, label }: { value: number, max: number,
         height: '100%', 
         backgroundColor: color, 
         borderRadius: '6px',
-        transition: 'width 0.3s'
+        transition: 'width 0.1s linear'
       }} />
     </div>
   </div>
@@ -103,7 +105,7 @@ const IdleGame: React.FC = () => {
   const [unlockedSkills, setUnlockedSkills] = useState<PlayerSkill[]>(SKILL_DATABASE.map(s => ({ ...s, level: 1, currentExp: 0 })));
   const [equippedSkillIds, setEquippedSkillIds] = useState<string[]>([]);
   const [skillCooldowns, setSkillCooldowns] = useState<Record<string, number>>({});
-  const [currentPlayerHP, setCurrentPlayerHP] = useState(500);
+  const [currentPlayerHP, setCurrentPlayerHP] = useState(100);
   const [currentEnemyHP, setCurrentEnemyHP] = useState(50);
   const [currentEnemyMaxHP, setCurrentEnemyMaxHP] = useState(50);
   const [isRespawning, setIsRespawning] = useState(false);
@@ -112,8 +114,11 @@ const IdleGame: React.FC = () => {
   const [isCombatPaused, setIsCombatPaused] = useState(false);
   const [highestUnlockedZone, setHighestUnlockedZone] = useState(1);
   const [targetFarmingZone, setTargetFarmingZone] = useState(1);
+  const [killsInCurrentZone, setKillsInCurrentZone] = useState(0);
+  const [playerAttackTimer, setPlayerAttackTimer] = useState(0);
+  const [enemyAttackTimer, setEnemyAttackTimer] = useState(0);
 
-  // Mapping System State (Mechanic A + C)
+  // Mapping System State
   const [activeMap, setActiveMap] = useState<MapInstance | null>(null);
   const [stagedMap, setStagedMap] = useState<MapInstance | null>(null);
   const [corruptionCatalysts, setCorruptionCatalysts] = useState(0);
@@ -125,7 +130,6 @@ const IdleGame: React.FC = () => {
   const [damageFlash, setDamageFlash] = useState(false);
   const [offlineRewards, setOfflineRewards] = useState<{ timeAway: number; exp: number; gold: number; scrap: number; kills: number; } | null>(null);
   
-  // Loot Filter State
   const [filterRules, setFilterRules] = useState<{id: number, rarity: string, action: string}[]>([
     { id: 1, rarity: "MAGIC", action: "SALVAGE" },
     { id: 2, rarity: "RARE", action: "KEEP" }
@@ -141,10 +145,13 @@ const IdleGame: React.FC = () => {
   const baseStats = useMemo(() => calculatePlayerStats(playerLevel), [playerLevel]);
   const gearStats = useMemo(() => calculateItemStats(Object.values(equipment)), [equipment]);
   const passiveStats = useMemo(() => calculatePassiveStats(allocatedPassiveNodes), [allocatedPassiveNodes]);
+  
   const finalStats = useMemo(() => ({
     dps: baseStats.dps + gearStats.dps + passiveStats.dps,
     hp: baseStats.hp + gearStats.hp + passiveStats.hp,
-    damageReduction: Math.min(0.9, baseStats.damageReduction + gearStats.dr + passiveStats.dr)
+    damageReduction: Math.min(0.9, baseStats.damageReduction + gearStats.dr + passiveStats.dr),
+    attackSpeed: baseStats.attackSpeed, // Simple for now
+    hpRegen: baseStats.hpRegeneration
   }), [baseStats, gearStats, passiveStats]);
 
   const unspentPassivePoints = (playerLevel - 1) - allocatedPassiveNodes.length;
@@ -154,16 +161,16 @@ const IdleGame: React.FC = () => {
   const stateRef = useRef({ 
     playerLevel, currentExp, gold, craftingScrap, targetFarmingZone, highestUnlockedZone, allocatedPassiveNodes,
     unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards,
-    corruptionCatalysts, activeMap, stagedMap, isCombatPaused, filterRules
+    corruptionCatalysts, activeMap, stagedMap, isCombatPaused, filterRules, killsInCurrentZone, playerAttackTimer, enemyAttackTimer
   });
 
   useEffect(() => {
     stateRef.current = { 
       playerLevel, currentExp, gold, craftingScrap, targetFarmingZone, highestUnlockedZone, allocatedPassiveNodes,
       unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards,
-      corruptionCatalysts, activeMap, stagedMap, isCombatPaused, filterRules
+      corruptionCatalysts, activeMap, stagedMap, isCombatPaused, filterRules, killsInCurrentZone, playerAttackTimer, enemyAttackTimer
     };
-  }, [playerLevel, currentExp, gold, craftingScrap, targetFarmingZone, highestUnlockedZone, allocatedPassiveNodes, unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards, corruptionCatalysts, activeMap, stagedMap, isCombatPaused, filterRules]);
+  }, [playerLevel, currentExp, gold, craftingScrap, targetFarmingZone, highestUnlockedZone, allocatedPassiveNodes, unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards, corruptionCatalysts, activeMap, stagedMap, isCombatPaused, filterRules, killsInCurrentZone, playerAttackTimer, enemyAttackTimer]);
 
   // --- HELPERS ---
   const addLog = (msg: string) => setCombatLogs(prev => [msg, ...prev].slice(0, 10));
@@ -175,7 +182,7 @@ const IdleGame: React.FC = () => {
       highestUnlockedZone: stateRef.current.highestUnlockedZone, allocatedPassiveNodes: stateRef.current.allocatedPassiveNodes,
       unlockedSkills: stateRef.current.unlockedSkills, equippedSkillIds: stateRef.current.equippedSkillIds,
       inventory: stateRef.current.inventory, equipment: stateRef.current.equipment, filterRules: stateRef.current.filterRules,
-      corruptionCatalysts: stateRef.current.corruptionCatalysts, lastSaved: Date.now()
+      corruptionCatalysts: stateRef.current.corruptionCatalysts, killsInCurrentZone: stateRef.current.killsInCurrentZone, lastSaved: Date.now()
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
   };
@@ -188,19 +195,18 @@ const IdleGame: React.FC = () => {
   const spawnMonster = (level: number) => {
     setIsRespawning(false);
     const s = stateRef.current;
-    const baseStats = getMonsterStats(baseMonsterConfig, level);
+    const monster = getMonsterStats(baseMonsterConfig, level);
     
-    let hp = baseStats.baseEhp;
-    let dps = baseStats.baseDps;
-
+    let hp = monster.baseEhp;
     if (s.activeMap) {
       const z = calculateMapMultipliers(s.activeMap.modifiers);
-      hp *= z.enemyHP;
-      dps *= z.enemyDPS;
+      const instMult = s.activeMap.isCorrupted ? (1 + s.activeMap.instability * 0.05) : 1;
+      hp *= (z.enemyHP * instMult);
     }
 
     setCurrentEnemyHP(hp);
     setCurrentEnemyMaxHP(hp);
+    setEnemyAttackTimer(1 / monster.attackSpeed);
     addLog(`Fighting Lv ${level} ${s.activeMap ? 'MAP ' : ''}Monster`);
   };
 
@@ -214,6 +220,8 @@ const IdleGame: React.FC = () => {
       setAllocatedPassiveNodes(data.allocatedPassiveNodes || []); setUnlockedSkills(data.unlockedSkills || []);
       setEquippedSkillIds(data.equippedSkillIds || []); setInventory(data.inventory || []); setEquipment(data.equipment || {});
       setFilterRules(data.filterRules || [{ id: 1, rarity: "MAGIC", action: "SALVAGE" }, { id: 2, rarity: "RARE", action: "KEEP" }]);
+      setCorruptionCatalysts(data.corruptionCatalysts || 0);
+      setKillsInCurrentZone(data.killsInCurrentZone || 0);
 
       const secondsAway = Math.floor((Date.now() - data.lastSaved) / 1000);
       if (secondsAway > 60) {
@@ -269,7 +277,6 @@ const IdleGame: React.FC = () => {
   const handleMonsterDeath = (s: any, earnedExp: number, earnedGold: number) => {
     let expMult = 1; let goldMult = 1; let lootMult = 1;
     
-    // 2% Catalyst Drop Chance
     if (Math.random() < 0.02) {
       setCorruptionCatalysts(prev => prev + 1);
       addLog(">>> Monster dropped a Corruption Catalyst! <<<");
@@ -277,13 +284,8 @@ const IdleGame: React.FC = () => {
 
     if (s.activeMap) {
       const z = calculateMapMultipliers(s.activeMap.modifiers);
-      
-      // Instability Multiplier: 1 + (instability * 0.05)
       const instMult = s.activeMap.isCorrupted ? (1 + s.activeMap.instability * 0.05) : 1;
-      
-      expMult = z.expMult * instMult; 
-      goldMult = z.goldMult * instMult; 
-      lootMult = z.lootQty * instMult;
+      expMult = z.expMult * instMult; goldMult = z.goldMult * instMult; lootMult = z.lootQty * instMult;
       
       setActiveMap(prev => prev ? { 
         ...prev, 
@@ -293,19 +295,24 @@ const IdleGame: React.FC = () => {
 
       if (s.activeMap.remainingKills <= 1) {
         setActiveMap(null);
-        addLog(`MAP COMPLETE! Final Instability: ${s.activeMap.instability}. Reverting to normal farming.`);
+        addLog("MAP COMPLETE! Reverting to normal farming.");
       }
     } else {
-      // Normal progression
+      // Normal progression 10-kill rule
       if (s.targetFarmingZone === s.highestUnlockedZone) {
-        setHighestUnlockedZone(prev => prev + 1);
-        setTargetFarmingZone(prev => prev + 1);
+        const nextKills = s.killsInCurrentZone + 1;
+        if (nextKills >= 10) {
+          setHighestUnlockedZone(prev => prev + 1);
+          setTargetFarmingZone(prev => prev + 1);
+          setKillsInCurrentZone(0);
+        } else {
+          setKillsInCurrentZone(nextKills);
+        }
       }
     }
 
     const finalExp = earnedExp * expMult;
     const finalGold = earnedGold * goldMult;
-    if (Math.random() < 0.10) setResonanceTokens(prev => prev + 1);
 
     setUnlockedSkills(prev => prev.map(sk => {
       if (!s.equippedSkillIds.includes(sk.id)) return sk;
@@ -328,48 +335,93 @@ const IdleGame: React.FC = () => {
     setCurrentExp(newExp); setGold(s.gold + finalGold);
     processLootDrop(Math.random() < 0.7 ? 'MAGIC' : 'RARE', s.targetFarmingZone, lootMult);
     setIsRespawning(true); setCurrentEnemyHP(0);
-    setTimeout(() => {
-      const cur = stateRef.current;
-      spawnMonster(cur.targetFarmingZone);
-    }, 1000);
+    setTimeout(() => spawnMonster(stateRef.current.targetFarmingZone), 1000);
   };
 
   useEffect(() => {
     const tickInterval = setInterval(() => {
       const s = stateRef.current;
       if (s.offlineRewards || s.isCombatPaused) return;
+
+      // 1. HP Regeneration (Always happens)
+      setCurrentPlayerHP(prev => Math.min(s.finalStats.hp, prev + (s.finalStats.hp * s.finalStats.hpRegen * TICK_RATE)));
+
+      // 2. Cooldowns (Always progress)
       const nextCDs = { ...s.skillCooldowns };
-      s.equippedSkillIds.forEach(id => { if (nextCDs[id] > 0) nextCDs[id]--; });
+      s.equippedSkillIds.forEach(id => { if (nextCDs[id] > 0) nextCDs[id] = Math.max(0, nextCDs[id] - TICK_RATE); });
       setSkillCooldowns(nextCDs);
+
       if (s.isRespawning || s.currentEnemyHP <= 0) return;
+
       const monster = getMonsterStats(baseMonsterConfig, s.targetFarmingZone);
-      let tempEHP = s.currentEnemyHP; let died = false;
-      s.equippedSkillIds.forEach(id => {
-        if (died) return;
-        const sk = s.unlockedSkills.find(x => x.id === id);
-        if (sk && (nextCDs[id] || 0) === 0) {
-          const d = calculateSkillDamage(s.finalStats.dps, sk); tempEHP -= d; nextCDs[id] = sk.cooldownTicks;
-          addLog(`>>> CAST [${sk.name}]: ${formatLargeNumber(d)} <<<`);
-          setDamageFlash(true); setTimeout(() => setDamageFlash(false), 150);
-          if (tempEHP <= 0) died = true;
+      let mHP = s.currentEnemyHP;
+      let pTimer = s.playerAttackTimer - TICK_RATE;
+      let eTimer = s.enemyAttackTimer - TICK_RATE;
+
+      // 3. Player Attacks
+      if (pTimer <= 0) {
+        let died = false;
+        let totalHitDmg = 0;
+
+        // Try skills first
+        s.equippedSkillIds.forEach(id => {
+          if (died) return;
+          const sk = s.unlockedSkills.find(x => x.id === id);
+          if (sk && (nextCDs[id] || 0) === 0) {
+            const d = calculateSkillDamage(s.finalStats.dps, sk);
+            totalHitDmg += d;
+            nextCDs[id] = sk.cooldownTicks;
+            addLog(`>>> CAST [${sk.name}]: ${formatLargeNumber(d)} <<<`);
+            setDamageFlash(true); setTimeout(() => setDamageFlash(false), 150);
+          }
+        });
+
+        // Add base hit damage: DPS / AttackSpeed
+        const hitDmg = s.finalStats.dps / s.finalStats.attackSpeed;
+        totalHitDmg += hitDmg;
+        mHP -= totalHitDmg;
+        pTimer = 1 / s.finalStats.attackSpeed;
+
+        if (mHP <= 0) {
+          const mult = Math.pow(1.1, s.targetFarmingZone - 1);
+          handleMonsterDeath(s, monster.baseExp * mult, monster.baseGold * mult);
+          setPlayerAttackTimer(pTimer);
+          return;
         }
-      });
-      if (!died) { tempEHP -= s.finalStats.dps; if (tempEHP <= 0) died = true; }
-      if (died) {
-        const mult = Math.pow(1.1, s.targetFarmingZone - 1);
-        handleMonsterDeath(s, monster.baseExp * mult, monster.baseGold * mult);
-      } else {
-        let mDmg = monster.baseDps * (1 - s.finalStats.damageReduction);
-        if (s.activeMap) mDmg *= calculateMapMultipliers(s.activeMap.modifiers).enemyDPS;
-        const nextPHP = Math.max(0, s.currentPlayerHP - mDmg);
+      }
+
+      // 4. Enemy Attacks
+      if (eTimer <= 0) {
+        let mDps = monster.baseDps;
+        if (s.activeMap) {
+          const z = calculateMapMultipliers(s.activeMap.modifiers);
+          const instMult = s.activeMap.isCorrupted ? (1 + s.activeMap.instability * 0.05) : 1;
+          mDps *= (z.enemyDPS * instMult);
+        }
+        
+        const hitDmg = (mDps / monster.attackSpeed) * (1 - s.finalStats.damageReduction);
+        const nextPHP = Math.max(0, s.currentPlayerHP - hitDmg);
+        eTimer = 1 / monster.attackSpeed;
+
         if (nextPHP <= 0) {
-          if (s.activeMap) { setActiveMap(null); addLog("MAP FAILED! Returning to base."); }
+          if (s.activeMap) { setActiveMap(null); addLog("MAP FAILED!"); }
           const prev = Math.max(1, s.targetFarmingZone - 1);
           setTargetFarmingZone(prev); setCurrentPlayerHP(s.finalStats.hp);
+          setKillsInCurrentZone(0);
           spawnMonster(prev); addLog(`Died! Retreating.`);
-        } else { setCurrentEnemyHP(tempEHP); setCurrentPlayerHP(nextPHP); }
+          setPlayerAttackTimer(1); // Reset timers on death
+          setEnemyAttackTimer(1);
+          return;
+        }
+        setCurrentPlayerHP(nextPHP);
       }
-    }, 1000);
+
+      setCurrentEnemyHP(mHP);
+      setPlayerAttackTimer(pTimer);
+      setEnemyAttackTimer(eTimer);
+      setSkillCooldowns(nextCDs);
+
+    }, 1000 * TICK_RATE);
     return () => clearInterval(tickInterval);
   }, [offlineRewards, isCombatPaused]);
 
@@ -377,37 +429,24 @@ const IdleGame: React.FC = () => {
   const handleRollZone = () => {
     if (craftingScrap >= 100) {
       setCraftingScrap(prev => prev - 100);
-      setStagedMap({
-        modifiers: generateZoneModifiers(),
-        remainingKills: 100,
-        isCorrupted: false,
-        instability: 0
-      });
+      setStagedMap({ modifiers: generateZoneModifiers(), remainingKills: 100, isCorrupted: false, instability: 0 });
       addLog("Rolled a new Map!");
     }
   };
-
   const handleCorruptMap = () => {
     if (stagedMap && !stagedMap.isCorrupted && corruptionCatalysts > 0) {
       setCorruptionCatalysts(prev => prev - 1);
-      setStagedMap({
-        ...stagedMap,
-        isCorrupted: true,
-        modifiers: corruptModifiers(stagedMap.modifiers)
-      });
-      addLog(">>> MAP CORRUPTED: Modifiers empowered by 1.5x but instability enabled! <<<");
+      setStagedMap({ ...stagedMap, isCorrupted: true, modifiers: corruptModifiers(stagedMap.modifiers) });
+      addLog(">>> MAP CORRUPTED <<<");
     }
   };
-
   const handleOpenMap = () => {
     if (stagedMap && !activeMap) {
-      setActiveMap({ ...stagedMap });
-      setStagedMap(null);
-      addLog(`Map Opened! ${stagedMap.isCorrupted ? 'CORRUPTED ' : ''}100 kills remaining.`);
+      setActiveMap({ ...stagedMap }); setStagedMap(null);
+      addLog(`Map Opened!`);
     }
   };
-
-  const handleRollItem = () => { if (gold >= 100) { setGold(prev => prev - 100); processLootDrop('RARE', playerLevel); } };
+  const handleRollItem = () => { if (gold >= 100) { setGold(prev => prev - 100); processLootDrop('RARE', targetFarmingZone); } };
   const handleEquip = (itm: Item) => {
     const cur = equipment[itm.slot]; setEquipment(prev => ({ ...prev, [itm.slot]: itm }));
     setInventory(prev => { const f = prev.filter(x => x.id !== itm.id); return cur ? [cur, ...f] : f; });
@@ -421,70 +460,38 @@ const IdleGame: React.FC = () => {
   const handleSalvage = (itm: Item) => { setInventory(prev => prev.filter(x => x.id !== itm.id)); setCraftingScrap(p => p + itm.itemLevel * (itm.rarity === 'RARE' ? 5 : 2)); };
   const handleAutoCraft = () => {
     let att = 0; let curG = gold; let ok = false; let res: Item | null = null;
-    const costPerRoll = 500;
-    const maxRolls = 1000;
-
-    while (att < maxRolls && curG >= costPerRoll) {
-      att++; curG -= costPerRoll;
-      const ni = generateItem('RARE', targetFarmingZone);
-      const allAffixes = [...ni.prefixes, ...ni.suffixes];
-      if (allAffixes.some(a => a.group === targetAffixGroup && a.tier <= minTier)) {
-        ok = true; res = ni; break;
-      }
+    while (att < 1000 && curG >= 500) {
+      att++; curG -= 500; const ni = generateItem('RARE', targetFarmingZone);
+      if ([...ni.prefixes, ...ni.suffixes].some(a => a.group === targetAffixGroup && a.tier <= minTier)) { ok = true; res = ni; break; }
     }
-
-    setGold(curG);
-    if (ok && res) {
-      setInventory(p => [res!, ...p]);
-      addLog(`Auto-Craft SUCCESS! Found ${targetAffixGroup} T${minTier} in ${att} rolls. (Spent ${formatLargeNumber(att * costPerRoll)} Gold)`);
-    } else {
-      const reason = curG < costPerRoll ? "Out of Gold" : "Reached 1000 rolls limit";
-      addLog(`Auto-Craft FAILED (${reason}): Tried ${att} times for ${targetAffixGroup} T${minTier}.`);
-    }
+    setGold(curG); if (ok && res) { setInventory(p => [res!, ...p]); addLog(`Auto-Craft SUCCESS!`); } else addLog(`Auto-Craft FAILED.`);
   };
+  const handleEquipSkill = (id: string) => { if (equippedSkillIds.length < 3 && !equippedSkillIds.includes(id)) { setEquippedSkillIds(p => [...p, id]); setSkillCooldowns(p => ({ ...p, [id]: 0 })); } };
+  const handleUnequipSkill = (id: string) => setEquippedSkillIds(p => p.filter(sid => sid !== id));
+  const handleAllocatePassive = (id: string) => { if (isNodeAllocatable(id, allocatedPassiveNodes, unspentPassivePoints)) setAllocatedPassiveNodes(p => [...p, id]); };
+  const handleAddFilterRule = (r: string, a: string) => { setFilterRules(prev => { const f = prev.filter(x => x.rarity !== r); return [...f, { id: Date.now(), rarity: r, action: a }]; }); };
+  const handleRemoveFilterRule = (id: number) => { setFilterRules(prev => prev.filter(r => r.id !== id)); };
 
   const renderAffixes = (item: Item) => {
     const totals = calculateItemStats([item]);
     return (
       <div style={{ marginTop: '8px', borderTop: '1px solid #334155', paddingTop: '8px' }}>
-        {/* Total Summary Section */}
         <div style={{ marginBottom: '8px', paddingBottom: '4px', borderBottom: '1px dashed #334155' }}>
-          <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', marginBottom: '2px' }}>Total Stats</div>
+          <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase' }}>Total Stats</div>
           {totals.dps > 0 && <div style={{ fontSize: '0.8rem', color: '#f8fafc', fontWeight: 'bold' }}>+{formatLargeNumber(totals.dps)} DPS</div>}
           {totals.hp > 0 && <div style={{ fontSize: '0.8rem', color: '#f8fafc', fontWeight: 'bold' }}>+{formatLargeNumber(totals.hp)} HP</div>}
-          {totals.dr > 0 && <div style={{ fontSize: '0.8rem', color: '#f8fafc', fontWeight: 'bold' }}>+{(totals.dr * 100).toFixed(1)}% Damage Reduction</div>}
+          {totals.dr > 0 && <div style={{ fontSize: '0.8rem', color: '#f8fafc', fontWeight: 'bold' }}>+{(totals.dr * 100).toFixed(1)}% DR</div>}
         </div>
-
-        {/* Individual Affixes Section */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
           {[...item.prefixes, ...item.suffixes].map(a => (
-            <div key={a.id} style={{ fontSize: '0.75rem', color: '#e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>
-                +{a.statKey === 'dr' ? (a.value * 100).toFixed(1) + '%' : a.value} {a.statKey.toUpperCase()}
-              </span>
-              <span style={{ fontSize: '0.6rem', color: '#64748b', marginLeft: '10px' }}>
-                {a.name} (T{a.tier})
-              </span>
+            <div key={a.id} style={{ fontSize: '0.75rem', color: '#e2e8f0', display: 'flex', justifyContent: 'space-between' }}>
+              <span>+{a.statKey === 'dr' ? (a.value * 100).toFixed(1) + '%' : a.value} {a.statKey.toUpperCase()}</span>
+              <span style={{ fontSize: '0.6rem', color: '#64748b' }}>{a.name} (T{a.tier})</span>
             </div>
           ))}
         </div>
       </div>
     );
-  };
-
-  const handleEquipSkill = (id: string) => { if (equippedSkillIds.length < 3 && !equippedSkillIds.includes(id)) { setEquippedSkillIds(p => [...p, id]); setSkillCooldowns(p => ({ ...p, [id]: 0 })); } };
-  const handleUnequipSkill = (id: string) => setEquippedSkillIds(p => p.filter(sid => sid !== id));
-  const handleAllocatePassive = (id: string) => { if (isNodeAllocatable(id, allocatedPassiveNodes, unspentPassivePoints)) setAllocatedPassiveNodes(p => [...p, id]); };
-
-  const handleAddFilterRule = (rarity: string, action: string) => {
-    setFilterRules(prev => {
-      const filtered = prev.filter(r => r.rarity !== rarity);
-      return [...filtered, { id: Date.now(), rarity, action }];
-    });
-  };
-
-  const handleRemoveFilterRule = (id: number) => {
-    setFilterRules(prev => prev.filter(r => r.id !== id));
   };
 
   return (
@@ -497,22 +504,16 @@ const IdleGame: React.FC = () => {
         .log-normal { border-left-color: #334155; }
       `}</style>
 
-      {/* Combat Controls */}
       <section style={{ backgroundColor: '#1e293b', padding: '15px', borderRadius: '12px', border: '1px solid #334155', marginBottom: '10px', display: 'flex', gap: '20px', alignItems: 'center', justifyContent: 'center' }}>
         <button onClick={() => setIsCombatPaused(!isCombatPaused)} style={{ padding: '8px 20px', backgroundColor: isCombatPaused ? '#059669' : '#7f1d1d', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-          {isCombatPaused ? 'RESUME COMBAT' : 'PAUSE COMBAT'}
+          {isCombatPaused ? 'RESUME' : 'PAUSE'}
         </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '0.9rem', color: '#94a3b8' }}>Farming Zone:</span>
-          <select value={targetFarmingZone} onChange={(e) => {
-            const z = Number(e.target.value);
-            setTargetFarmingZone(z);
-            spawnMonster(z);
-          }} style={{ padding: '5px', backgroundColor: '#0f172a', color: 'white', border: '1px solid #334155', borderRadius: '4px' }}>
-            {Array.from({ length: highestUnlockedZone }, (_, i) => i + 1).map(z => (
-              <option key={z} value={z}>Zone {z}</option>
-            ))}
+          <span style={{ fontSize: '0.9rem', color: '#94a3b8' }}>Zone:</span>
+          <select value={targetFarmingZone} onChange={(e) => { const z = Number(e.target.value); setTargetFarmingZone(z); spawnMonster(z); }} style={{ padding: '5px', backgroundColor: '#0f172a', color: 'white', border: '1px solid #334155', borderRadius: '4px' }}>
+            {Array.from({ length: highestUnlockedZone }, (_, i) => i + 1).map(z => <option key={z} value={z}>Zone {z}</option>)}
           </select>
+          {!activeMap && <span style={{ fontSize: '0.8rem', color: '#fbbf24' }}>Progress: {killsInCurrentZone}/10 Kills</span>}
         </div>
       </section>
 
@@ -521,14 +522,9 @@ const IdleGame: React.FC = () => {
           {combatLogs.map((log, i) => <div key={i} className={log.includes('>>>') ? 'log-entry log-skill' : 'log-entry log-normal'}>{log}</div>)}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px' }}>
-          <ProgressBar value={currentPlayerHP} max={finalStats.hp} color="#10b981" label="Player" />
+          <ProgressBar value={currentPlayerHP} max={finalStats.hp} color="#10b981" label="Player HP" />
           <div className={damageFlash ? 'hit-flash' : ''}>
-            <ProgressBar 
-              value={currentEnemyHP} 
-              max={currentEnemyMaxHP} 
-              color="#ef4444" 
-              label={isRespawning ? "Respawning..." : (activeMap ? `Map Monster (${activeMap.remainingKills} left)` : "Monster")} 
-            />
+            <ProgressBar value={currentEnemyHP} max={currentEnemyMaxHP} color="#ef4444" label={isRespawning ? "Respawning..." : (activeMap ? `Map Monster (${activeMap.remainingKills} left)` : "Monster")} />
           </div>
         </div>
       </section>
@@ -537,25 +533,18 @@ const IdleGame: React.FC = () => {
         <aside style={{ backgroundColor: '#1e293b', padding: '15px', borderRadius: '8px' }}>
           <h3>Stats</h3>
           <p>Lv: {playerLevel} | Gold: {formatLargeNumber(gold)}</p>
-          <p>Scrap: {formatLargeNumber(craftingScrap)}</p>
-          <p>Catalysts: <span style={{ color: '#ef4444' }}>{corruptionCatalysts}</span></p>
-          <div style={{ fontSize: '0.8rem', lineHeight: '1.6' }}><div>DPS: {formatLargeNumber(finalStats.dps)} | HP: {formatLargeNumber(finalStats.hp)}</div><div>DR: {(finalStats.damageReduction * 100).toFixed(0)}%</div></div>
+          <p>Scrap: {formatLargeNumber(craftingScrap)} | Cats: {corruptionCatalysts}</p>
+          <div style={{ fontSize: '0.8rem', lineHeight: '1.6' }}>
+            <div>DPS: {formatLargeNumber(finalStats.dps)} | HP: {formatLargeNumber(finalStats.hp)}</div>
+            <div>AS: {finalStats.attackSpeed.toFixed(1)} | Regen: 5%/s</div>
+          </div>
           <ProgressBar value={currentExp} max={expToNextLevel} color="#3b82f6" label="EXP" />
         </aside>
 
         <main style={{ backgroundColor: '#1e293b', padding: '15px', borderRadius: '8px' }}>
           <div style={{ display: 'flex', gap: '5px', marginBottom: '15px' }}>
             {['INVENTORY', 'PASSIVES', 'SKILLS', 'FILTER', 'ATLAS'].map(t => (
-              <button 
-                key={t} 
-                onClick={() => setCurrentTab(t as any)} 
-                style={{ 
-                  padding: '6px 12px', borderRadius: '4px', border: 'none', cursor: 'pointer', 
-                  backgroundColor: currentTab === t ? '#3b82f6' : '#334155', color: 'white', fontSize: '0.8rem' 
-                }}
-              >
-                {t}
-              </button>
+              <button key={t} onClick={() => setCurrentTab(t as any)} style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: currentTab === t ? '#3b82f6' : '#334155', color: 'white', fontSize: '0.8rem' }}>{t}</button>
             ))}
           </div>
 
@@ -571,7 +560,7 @@ const IdleGame: React.FC = () => {
                 );
               })}</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', height: '300px', overflowY: 'auto' }}>{inventory.map(item => (
-                <div key={item.id} style={{ border: '1px solid #334155', padding: '8px', backgroundColor: '#0f172a' }}>
+                <div key={item.id} style={{ border: '1px solid #334155', padding: '10px', backgroundColor: '#0f172a' }}>
                   <div style={{ color: '#fbbf24', fontSize: '0.75rem', fontWeight: 'bold' }}>{item.name} (iLv {item.itemLevel})</div>
                   {renderAffixes(item)}
                   <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
@@ -590,12 +579,12 @@ const IdleGame: React.FC = () => {
             </div>
           ) : currentTab === 'FILTER' ? (
             <div style={{ height: '400px', overflowY: 'auto' }}>
-              <h3 style={{ fontSize: '1rem', marginBottom: '10px' }}>Custom Loot Filter</h3>
+              <h3 style={{ fontSize: '1rem', marginBottom: '10px' }}>Loot Filter</h3>
               <div style={{ backgroundColor: '#0f172a', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #334155' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '10px', alignItems: 'end' }}>
-                  <div><label style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>IF RARITY IS:</label><select id="rarity-select" style={{ width: '100%', padding: '5px', backgroundColor: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '4px' }}><option value="NORMAL">NORMAL</option><option value="MAGIC">MAGIC</option><option value="RARE">RARE</option></select></div>
-                  <div><label style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>THEN DO:</label><select id="action-select" style={{ width: '100%', padding: '5px', backgroundColor: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '4px' }}><option value="KEEP">KEEP</option><option value="SALVAGE">SALVAGE</option><option value="SELL_FOR_GOLD">SELL FOR GOLD</option></select></div>
-                  <button onClick={() => { const r = (document.getElementById('rarity-select') as HTMLSelectElement).value; const a = (document.getElementById('action-select') as HTMLSelectElement).value; handleAddFilterRule(r, a); }} style={{ padding: '6px 15px', backgroundColor: '#3b82f6', border: 'none', borderRadius: '4px', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}>Add Rule</button>
+                  <div><label style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>RARITY</label><select id="rarity-select" style={{ width: '100%', padding: '5px', backgroundColor: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '4px' }}><option value="NORMAL">NORMAL</option><option value="MAGIC">MAGIC</option><option value="RARE">RARE</option></select></div>
+                  <div><label style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>ACTION</label><select id="action-select" style={{ width: '100%', padding: '5px', backgroundColor: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '4px' }}><option value="KEEP">KEEP</option><option value="SALVAGE">SALVAGE</option><option value="SELL_FOR_GOLD">SELL</option></select></div>
+                  <button onClick={() => { const r = (document.getElementById('rarity-select') as HTMLSelectElement).value; const a = (document.getElementById('action-select') as HTMLSelectElement).value; handleAddFilterRule(r, a); }} style={{ padding: '6px 15px', backgroundColor: '#3b82f6', border: 'none', borderRadius: '4px', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}>Add</button>
                 </div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>{filterRules.map(rule => (<div key={rule.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 15px', backgroundColor: '#0f172a', borderRadius: '6px', borderLeft: '4px solid #3b82f6' }}><span style={{ fontSize: '0.85rem' }}>IF <strong style={{ color: '#fbbf24' }}>{rule.rarity}</strong> THEN <strong style={{ color: '#10b981' }}>{rule.action.replace(/_/g, ' ')}</strong></span><button onClick={() => handleRemoveFilterRule(rule.id)} style={{ backgroundColor: '#7f1d1d', border: 'none', color: 'white', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem' }}>Delete</button></div>))}</div>
@@ -603,59 +592,30 @@ const IdleGame: React.FC = () => {
           ) : currentTab === 'ATLAS' ? (
             <div style={{ height: '400px', overflowY: 'auto' }}>
               <h3 style={{ marginBottom: '20px' }}>Atlas Map Device</h3>
-              
               <div style={{ backgroundColor: '#0f172a', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #334155' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
-                  <span>Crafting Scrap: {formatLargeNumber(craftingScrap)}</span>
-                </div>
-                <button 
-                  onClick={handleRollZone} 
-                  disabled={craftingScrap < 100} 
-                  style={{ width: '100%', padding: '10px', backgroundColor: craftingScrap >= 100 ? '#4f46e5' : '#334155', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
-                >
-                  Craft Map (100 Scrap)
-                </button>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}><span>Scrap: {formatLargeNumber(craftingScrap)}</span></div>
+                <button onClick={handleRollZone} disabled={craftingScrap < 100} style={{ width: '100%', padding: '10px', backgroundColor: craftingScrap >= 100 ? '#4f46e5' : '#334155', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Craft Map (100 Scrap)</button>
               </div>
-
               {stagedMap && (
                 <div style={{ backgroundColor: stagedMap.isCorrupted ? 'rgba(127, 29, 29, 0.2)' : 'rgba(124, 58, 237, 0.1)', padding: '15px', borderRadius: '8px', border: `1px solid ${stagedMap.isCorrupted ? '#ef4444' : '#7c3aed'}`, marginBottom: '20px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                    <h4 style={{ margin: 0, color: stagedMap.isCorrupted ? '#ef4444' : '#a78bfa' }}>
-                      {stagedMap.isCorrupted ? 'CORRUPTED MAP' : 'Staged Map Modifiers'}
-                    </h4>
-                    {!stagedMap.isCorrupted && (
-                      <button 
-                        onClick={handleCorruptMap}
-                        disabled={corruptionCatalysts <= 0}
-                        style={{ padding: '4px 10px', backgroundColor: corruptionCatalysts > 0 ? '#ef4444' : '#334155', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 'bold' }}
-                      >
-                        Corrupt (1 Catalyst)
-                      </button>
-                    )}
+                    <h4 style={{ margin: 0, color: stagedMap.isCorrupted ? '#ef4444' : '#a78bfa' }}>{stagedMap.isCorrupted ? 'CORRUPTED MAP' : 'Staged Map'}</h4>
+                    {!stagedMap.isCorrupted && <button onClick={handleCorruptMap} disabled={corruptionCatalysts <= 0} style={{ padding: '4px 10px', backgroundColor: corruptionCatalysts > 0 ? '#ef4444' : '#334155', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 'bold' }}>Corrupt (1 Cat)</button>}
                   </div>
                   {stagedMap.modifiers.map((m, i) => <div key={i} style={{ fontSize: '0.85rem', marginBottom: '4px' }}>• {m.text}</div>)}
-                  <button 
-                    onClick={handleOpenMap} 
-                    disabled={!!activeMap}
-                    style={{ marginTop: '15px', width: '100%', padding: '10px', backgroundColor: activeMap ? '#334155' : (stagedMap.isCorrupted ? '#b91c1c' : '#7c3aed'), color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
-                  >
-                    {activeMap ? 'Map Already Active' : 'Open Map'}
-                  </button>
+                  <button onClick={handleOpenMap} disabled={!!activeMap} style={{ marginTop: '15px', width: '100%', padding: '10px', backgroundColor: activeMap ? '#334155' : (stagedMap.isCorrupted ? '#b91c1c' : '#7c3aed'), color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>{activeMap ? 'Map Active' : 'Open Map'}</button>
                 </div>
               )}
-
               {activeMap && (
                 <div style={{ backgroundColor: activeMap.isCorrupted ? 'rgba(127, 29, 29, 0.2)' : 'rgba(5, 150, 105, 0.1)', padding: '15px', borderRadius: '8px', border: `1px solid ${activeMap.isCorrupted ? '#ef4444' : '#059669'}` }}>
-                  <h4 style={{ margin: '0 0 10px 0', color: activeMap.isCorrupted ? '#ef4444' : '#34d399' }}>
-                    {activeMap.isCorrupted ? `CORRUPTED MAP (Instability: ${activeMap.instability})` : 'Active Map Status'}
-                  </h4>
-                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', marginBottom: '10px' }}>{activeMap.remainingKills} Kills Remaining</div>
+                  <h4 style={{ margin: '0 0 10px 0', color: activeMap.isCorrupted ? '#ef4444' : '#34d399' }}>{activeMap.isCorrupted ? `CORRUPTED (Instability: ${activeMap.instability})` : 'Active Map'}</h4>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', marginBottom: '10px' }}>{activeMap.remainingKills} Kills Left</div>
                   {activeMap.modifiers.map((m, i) => <div key={i} style={{ fontSize: '0.85rem', marginBottom: '4px' }}>• {m.text}</div>)}
                 </div>
               )}
             </div>
           ) : (
-            <div style={{ height: '400px', overflowY: 'auto' }}>{unlockedSkills.map(sk => { const isEq = equippedSkillIds.includes(sk.id); const cd = skillCooldowns[sk.id] || 0; return <div key={sk.id} style={{ backgroundColor: '#0f172a', padding: '10px', borderRadius: '6px', marginBottom: '8px', border: isEq ? '1px solid #3b82f6' : '1px solid #334155' }}><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}><span style={{ fontWeight: 'bold' }}>{sk.name} (Lv {sk.level})</span><button onClick={() => isEq ? handleUnequipSkill(sk.id) : handleEquipSkill(sk.id)} style={{ padding: '2px 8px', backgroundColor: isEq ? '#7f1d1d' : '#059669', border: 'none', color: 'white' }}>{isEq ? 'Unequip' : 'Equip'}</button></div><div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>CD: {sk.cooldownTicks}s | Cur: {cd}s</div><ProgressBar value={sk.currentExp} max={calculateSkillExpToNextLevel(sk.baseExpRequired, sk.level)} color="#8b5cf6" label="Skill EXP" /></div>; })}</div>
+            <div style={{ height: '400px', overflowY: 'auto' }}>{unlockedSkills.map(sk => { const isEq = equippedSkillIds.includes(sk.id); const cd = skillCooldowns[sk.id] || 0; return <div key={sk.id} style={{ backgroundColor: '#0f172a', padding: '10px', borderRadius: '6px', marginBottom: '8px', border: isEq ? '1px solid #3b82f6' : '1px solid #334155' }}><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}><span style={{ fontWeight: 'bold' }}>{sk.name} (Lv {sk.level})</span><button onClick={() => isEq ? handleUnequipSkill(sk.id) : handleEquipSkill(sk.id)} style={{ padding: '2px 8px', backgroundColor: isEq ? '#7f1d1d' : '#059669', border: 'none', color: 'white' }}>{isEq ? 'Unequip' : 'Equip'}</button></div><div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>CD: {sk.cooldownTicks}s | Cur: {cd.toFixed(1)}s</div><ProgressBar value={sk.currentExp} max={calculateSkillExpToNextLevel(sk.baseExpRequired, sk.level)} color="#8b5cf6" label="Skill EXP" /></div>; })}</div>
           )}
         </main>
         <aside style={{ backgroundColor: '#1e293b', padding: '15px', borderRadius: '8px' }}>
@@ -665,6 +625,7 @@ const IdleGame: React.FC = () => {
           <button onClick={handleAutoCraft} disabled={gold < 500} style={{ width: '100%', padding: '8px', backgroundColor: gold >= 500 ? '#7c3aed' : '#334155', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold' }}>Auto-Craft (500g)</button>
         </aside>
       </div>
+
       {offlineRewards && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0, 0, 0, 0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
           <div style={{ backgroundColor: '#1e293b', padding: '30px', borderRadius: '16px', border: '2px solid #3b82f6', maxWidth: '400px', width: '90%', textAlign: 'center' }}>
