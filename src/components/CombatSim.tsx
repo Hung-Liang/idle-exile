@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   evaluateCombat, 
-  formatLargeNumber
+  formatLargeNumber,
+  getMonsterStats
 } from '../utils/combat';
 import type { 
   PlayerStats, 
@@ -23,6 +24,8 @@ const CombatSim: React.FC = () => {
     dps: 100,
     hp: 500,
     damageReduction: 0.1, // 10%
+    attackSpeed: 1.5,
+    hpRegeneration: 0.05
   };
 
   const baseMonster: Omit<MonsterStats, 'level'> = {
@@ -30,6 +33,7 @@ const CombatSim: React.FC = () => {
     baseDps: 10,
     baseExp: 10,
     baseGold: 5,
+    attackSpeed: 1.2
   };
 
   useEffect(() => {
@@ -43,10 +47,7 @@ const CombatSim: React.FC = () => {
   useEffect(() => {
     const newRows: SimRow[] = [];
     for (let level = 1; level <= 50; level++) {
-      const monster: MonsterStats = {
-        ...baseMonster,
-        level,
-      };
+      const monster = getMonsterStats(baseMonster, level);
       const result = evaluateCombat(player, monster);
       newRows.push({ level, result });
     }

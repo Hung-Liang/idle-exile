@@ -20,7 +20,7 @@ import {
 } from '../utils/skills';
 import type { PlayerSkill } from '../utils/skills';
 import { generateZoneModifiers, calculateMapMultipliers, corruptModifiers } from '../utils/atlas';
-import type { ZoneModifier, MapInstance } from '../utils/atlas';
+import type { MapInstance } from '../utils/atlas';
 
 const TICK_RATE = 0.1; // 100ms
 
@@ -114,7 +114,7 @@ const IdleGame: React.FC = () => {
   const [isCombatPaused, setIsCombatPaused] = useState(false);
   const [highestUnlockedZone, setHighestUnlockedZone] = useState(1);
   const [targetFarmingZone, setTargetFarmingZone] = useState(1);
-  const [autoProgressZone, setAutoProgressZone] = useState(true);
+  const [autoProgressZone] = useState(true);
   const [killsInCurrentZone, setKillsInCurrentZone] = useState(0);
   const [playerAttackTimer, setPlayerAttackTimer] = useState(0);
   const [enemyAttackTimer, setEnemyAttackTimer] = useState(0);
@@ -445,7 +445,6 @@ const IdleGame: React.FC = () => {
       addLog(`Map Opened!`);
     }
   };
-  const handleRollItem = () => { if (gold >= 100) { setGold(prev => prev - 100); processLootDrop('RARE', targetFarmingZone); } };
   const handleEquip = (itm: Item) => {
     const cur = equipment[itm.slot]; setEquipment(prev => ({ ...prev, [itm.slot]: itm }));
     setInventory(prev => { const f = prev.filter(x => x.id !== itm.id); return cur ? [cur, ...f] : f; });

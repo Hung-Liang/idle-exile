@@ -44,6 +44,34 @@ export const getMonsterStats = (config: any, level: number): MonsterStats => {
   };
 };
 
+export interface CombatResult {
+  isVictory: boolean;
+  ttk: number;
+  tts: number;
+  earnedExp: number;
+  earnedGold: number;
+}
+
+export function evaluateCombat(player: PlayerStats, monster: MonsterStats): CombatResult {
+  const ttk = monster.baseEhp / player.dps;
+  
+  // Account for regeneration: net DPS taken
+  const monsterDps = monster.baseDps * (1 - player.damageReduction);
+  const playerRegen = player.hp * player.hpRegeneration;
+  const netMonsterDps = Math.max(0, monsterDps - playerRegen);
+  
+  const tts = netMonsterDps <= 0 ? Infinity : player.hp / netMonsterDps;
+  const isVictory = ttk <= tts;
+
+  return {
+    isVictory,
+    ttk,
+    tts,
+    earnedExp: isVictory ? monster.baseExp : 0,
+    earnedGold: isVictory ? monster.baseGold : 0
+  };
+}
+
 export const formatLargeNumber = (value: number): string => {
   if (value < 1000) return value.toFixed(1);
   const suffixes = ['', 'K', 'M', 'B', 'T'];
@@ -51,3 +79,4 @@ export const formatLargeNumber = (value: number): string => {
   const shortValue = (value / Math.pow(10, suffixIndex * 3)).toFixed(2);
   return `${shortValue}${suffixes[suffixIndex]}`;
 };
+
