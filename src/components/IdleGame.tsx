@@ -116,7 +116,6 @@ const IdleGame: React.FC = () => {
   // Mapping System State (Mechanic A + C)
   const [activeMap, setActiveMap] = useState<MapInstance | null>(null);
   const [stagedMap, setStagedMap] = useState<MapInstance | null>(null);
-  const [resonanceTokens, setResonanceTokens] = useState(0);
   const [corruptionCatalysts, setCorruptionCatalysts] = useState(0);
 
   const [inventory, setInventory] = useState<Item[]>([]);
@@ -155,16 +154,16 @@ const IdleGame: React.FC = () => {
   const stateRef = useRef({ 
     playerLevel, currentExp, gold, craftingScrap, targetFarmingZone, highestUnlockedZone, allocatedPassiveNodes,
     unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards,
-    resonanceTokens, activeMap, stagedMap, isCombatPaused, filterRules
+    corruptionCatalysts, activeMap, stagedMap, isCombatPaused, filterRules
   });
 
   useEffect(() => {
     stateRef.current = { 
       playerLevel, currentExp, gold, craftingScrap, targetFarmingZone, highestUnlockedZone, allocatedPassiveNodes,
       unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards,
-      resonanceTokens, activeMap, stagedMap, isCombatPaused, filterRules
+      corruptionCatalysts, activeMap, stagedMap, isCombatPaused, filterRules
     };
-  }, [playerLevel, currentExp, gold, craftingScrap, targetFarmingZone, highestUnlockedZone, allocatedPassiveNodes, unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards, resonanceTokens, activeMap, stagedMap, isCombatPaused, filterRules]);
+  }, [playerLevel, currentExp, gold, craftingScrap, targetFarmingZone, highestUnlockedZone, allocatedPassiveNodes, unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards, corruptionCatalysts, activeMap, stagedMap, isCombatPaused, filterRules]);
 
   // --- HELPERS ---
   const addLog = (msg: string) => setCombatLogs(prev => [msg, ...prev].slice(0, 10));
@@ -176,7 +175,7 @@ const IdleGame: React.FC = () => {
       highestUnlockedZone: stateRef.current.highestUnlockedZone, allocatedPassiveNodes: stateRef.current.allocatedPassiveNodes,
       unlockedSkills: stateRef.current.unlockedSkills, equippedSkillIds: stateRef.current.equippedSkillIds,
       inventory: stateRef.current.inventory, equipment: stateRef.current.equipment, filterRules: stateRef.current.filterRules,
-      resonanceTokens: stateRef.current.resonanceTokens, lastSaved: Date.now()
+      corruptionCatalysts: stateRef.current.corruptionCatalysts, lastSaved: Date.now()
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
   };
@@ -215,7 +214,6 @@ const IdleGame: React.FC = () => {
       setAllocatedPassiveNodes(data.allocatedPassiveNodes || []); setUnlockedSkills(data.unlockedSkills || []);
       setEquippedSkillIds(data.equippedSkillIds || []); setInventory(data.inventory || []); setEquipment(data.equipment || {});
       setFilterRules(data.filterRules || [{ id: 1, rarity: "MAGIC", action: "SALVAGE" }, { id: 2, rarity: "RARE", action: "KEEP" }]);
-      setResonanceTokens(data.resonanceTokens || 0);
 
       const secondsAway = Math.floor((Date.now() - data.lastSaved) / 1000);
       if (secondsAway > 60) {
@@ -519,7 +517,7 @@ const IdleGame: React.FC = () => {
           <h3>Stats</h3>
           <p>Lv: {playerLevel} | Gold: {formatLargeNumber(gold)}</p>
           <p>Scrap: {formatLargeNumber(craftingScrap)}</p>
-          <p>Tokens: {resonanceTokens}</p>
+          <p>Catalysts: <span style={{ color: '#ef4444' }}>{corruptionCatalysts}</span></p>
           <div style={{ fontSize: '0.8rem', lineHeight: '1.6' }}><div>DPS: {formatLargeNumber(finalStats.dps)} | HP: {formatLargeNumber(finalStats.hp)}</div><div>DR: {(finalStats.damageReduction * 100).toFixed(0)}%</div></div>
           <ProgressBar value={currentExp} max={expToNextLevel} color="#3b82f6" label="EXP" />
         </aside>
@@ -588,7 +586,6 @@ const IdleGame: React.FC = () => {
               <div style={{ backgroundColor: '#0f172a', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #334155' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
                   <span>Crafting Scrap: {formatLargeNumber(craftingScrap)}</span>
-                  <span>Tokens: {resonanceTokens}</span>
                 </div>
                 <button 
                   onClick={handleRollZone} 
