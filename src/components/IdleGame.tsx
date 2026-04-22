@@ -114,6 +114,7 @@ const IdleGame: React.FC = () => {
   const [isCombatPaused, setIsCombatPaused] = useState(false);
   const [highestUnlockedZone, setHighestUnlockedZone] = useState(1);
   const [targetFarmingZone, setTargetFarmingZone] = useState(1);
+  const [autoProgressZone, setAutoProgressZone] = useState(true);
   const [killsInCurrentZone, setKillsInCurrentZone] = useState(0);
   const [playerAttackTimer, setPlayerAttackTimer] = useState(0);
   const [enemyAttackTimer, setEnemyAttackTimer] = useState(0);
@@ -130,10 +131,8 @@ const IdleGame: React.FC = () => {
   const [damageFlash, setDamageFlash] = useState(false);
   const [offlineRewards, setOfflineRewards] = useState<{ timeAway: number; exp: number; gold: number; scrap: number; kills: number; } | null>(null);
   
-  const [filterRules, setFilterRules] = useState<{id: number, rarity: string, action: string}[]>([
-    { id: 1, rarity: "MAGIC", action: "SALVAGE" },
-    { id: 2, rarity: "RARE", action: "KEEP" }
-  ]);
+  // Loot Filter State (Start Empty)
+  const [filterRules, setFilterRules] = useState<{id: number, rarity: string, action: string}[]>([]);
 
   const [targetAffixGroup, setTargetAffixGroup] = useState<string>(UNIQUE_AFFIX_GROUPS[0]);
   const [minTier, setMinTier] = useState<number>(1);
@@ -159,18 +158,18 @@ const IdleGame: React.FC = () => {
   const baseMonsterConfig = useMemo(() => ({ baseEhp: 50, baseDps: 10, baseExp: 10, baseGold: 5 }), []);
 
   const stateRef = useRef({ 
-    playerLevel, currentExp, gold, craftingScrap, targetFarmingZone, highestUnlockedZone, allocatedPassiveNodes,
+    playerLevel, currentExp, gold, craftingScrap, targetFarmingZone, highestUnlockedZone, autoProgressZone, allocatedPassiveNodes,
     unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards,
     corruptionCatalysts, activeMap, stagedMap, isCombatPaused, filterRules, killsInCurrentZone, playerAttackTimer, enemyAttackTimer
   });
 
   useEffect(() => {
     stateRef.current = { 
-      playerLevel, currentExp, gold, craftingScrap, targetFarmingZone, highestUnlockedZone, allocatedPassiveNodes,
+      playerLevel, currentExp, gold, craftingScrap, targetFarmingZone, highestUnlockedZone, autoProgressZone, allocatedPassiveNodes,
       unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards,
       corruptionCatalysts, activeMap, stagedMap, isCombatPaused, filterRules, killsInCurrentZone, playerAttackTimer, enemyAttackTimer
     };
-  }, [playerLevel, currentExp, gold, craftingScrap, targetFarmingZone, highestUnlockedZone, allocatedPassiveNodes, unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards, corruptionCatalysts, activeMap, stagedMap, isCombatPaused, filterRules, killsInCurrentZone, playerAttackTimer, enemyAttackTimer]);
+  }, [playerLevel, currentExp, gold, craftingScrap, targetFarmingZone, highestUnlockedZone, autoProgressZone, allocatedPassiveNodes, unlockedSkills, equippedSkillIds, inventory, equipment, finalStats, currentPlayerHP, currentEnemyHP, isRespawning, skillCooldowns, offlineRewards, corruptionCatalysts, activeMap, stagedMap, isCombatPaused, filterRules, killsInCurrentZone, playerAttackTimer, enemyAttackTimer]);
 
   // --- HELPERS ---
   const addLog = (msg: string) => setCombatLogs(prev => [msg, ...prev].slice(0, 10));
