@@ -6,6 +6,7 @@
 
 export type AffixType = 'PREFIX' | 'SUFFIX';
 export type ItemSlot = 'WEAPON' | 'ARMOR' | 'ACCESSORY';
+export type ItemRarity = 'NORMAL' | 'MAGIC' | 'RARE' | 'UNIQUE';
 
 export interface Affix {
   id: string;
@@ -21,10 +22,11 @@ export interface Affix {
 export interface Item {
   id: string;
   name: string;
-  rarity: 'NORMAL' | 'MAGIC' | 'RARE' | 'UNIQUE';
+  rarity: ItemRarity;
   slot: ItemSlot;
   prefixes: Affix[];
   suffixes: Affix[];
+  itemLevel: number;
 }
 
 export const AFFIX_DATABASE: Affix[] = [
@@ -53,10 +55,19 @@ const getRandomByWeight = (affixes: Affix[]): Affix => {
   return affixes[0];
 };
 
-export const generateRareItem = (): Item => {
+/**
+ * Generates an item based on rarity and level.
+ * MAGIC: 1-2 affixes.
+ * RARE: 4-6 affixes.
+ */
+export const generateItem = (rarity: ItemRarity, itemLevel: number): Item => {
   const slots: ItemSlot[] = ['WEAPON', 'ARMOR', 'ACCESSORY'];
   const slot = slots[Math.floor(Math.random() * slots.length)];
-  const numAffixes = Math.floor(Math.random() * 3) + 4; // 4 to 6
+  
+  let numAffixes = 0;
+  if (rarity === 'MAGIC') numAffixes = Math.floor(Math.random() * 2) + 1; // 1 to 2
+  if (rarity === 'RARE') numAffixes = Math.floor(Math.random() * 3) + 4; // 4 to 6
+
   let numPrefixes = 0;
   let numSuffixes = 0;
 
@@ -80,10 +91,13 @@ export const generateRareItem = (): Item => {
     usedGroups.add(rolled.group);
 
     if (rolled.type === 'PREFIX') {
-      prefixes.push(rolled);
+      // Scale value by item level (simple linear scaling for now)
+      const scaledValue = rolled.value * (1 + (itemLevel - 1) * 0.1);
+      prefixes.push({ ...rolled, value: Number(scaledValue.toFixed(2)) });
       numPrefixes++;
     } else {
-      suffixes.push(rolled);
+      const scaledValue = rolled.value * (1 + (itemLevel - 1) * 0.1);
+      suffixes.push({ ...rolled, value: Number(scaledValue.toFixed(2)) });
       numSuffixes++;
     }
   }
@@ -94,12 +108,16 @@ export const generateRareItem = (): Item => {
   return {
     id: Math.random().toString(36).substr(2, 9),
     name: itemName,
-    rarity: 'RARE',
+    rarity,
     slot,
     prefixes,
     suffixes,
+    itemLevel,
   };
 };
+
+// Keep for backward compatibility or refactor calls
+export const generateRareItem = (): Item => generateItem('RARE', 1);
 
 export const calculateItemStats = (items: (Item | null)[]) => {
   const totals = { dps: 0, hp: 0, dr: 0 };

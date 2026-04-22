@@ -6,7 +6,7 @@ import {
   calculatePlayerStats,
   getMonsterStats
 } from '../utils/combat';
-import { generateRareItem, calculateItemStats } from '../utils/loot';
+import { generateItem, calculateItemStats } from '../utils/loot';
 import type { Item, ItemSlot } from '../utils/loot';
 import { 
   PASSIVE_TREE, 
@@ -14,7 +14,6 @@ import {
   isNodeAllocatable 
 } from '../utils/passiveTree';
 
-// Move ProgressBar outside to fix React static component warning
 const ProgressBar = ({ value, max, color, label }: { value: number, max: number, color: string, label: string }) => (
   <div style={{ width: '100%', marginBottom: '10px' }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '2px' }}>
@@ -121,6 +120,7 @@ const IdleGame: React.FC = () => {
   const [playerLevel, setPlayerLevel] = useState(1);
   const [currentExp, setCurrentExp] = useState(0);
   const [gold, setGold] = useState(0);
+  const [craftingScrap, setCraftingScrap] = useState(0);
   const [currentZoneLevel, setCurrentZoneLevel] = useState(1);
   
   // Progression State
@@ -130,6 +130,7 @@ const IdleGame: React.FC = () => {
   const [currentPlayerHP, setCurrentPlayerHP] = useState(500);
   const [currentEnemyHP, setCurrentEnemyHP] = useState(50);
   const [currentEnemyMaxHP, setCurrentEnemyMaxHP] = useState(50);
+  const [isRespawning, setIsRespawning] = useState(false);
   
   // Inventory & Equipment State
   const [inventory, setInventory] = useState<Item[]>([]);
@@ -172,18 +173,33 @@ const IdleGame: React.FC = () => {
 
   const stateRef = useRef({ 
     playerLevel, currentExp, gold, currentZoneLevel, 
-    finalStats, currentPlayerHP, currentEnemyHP, currentEnemyMaxHP 
+    finalStats, currentPlayerHP, currentEnemyHP, currentEnemyMaxHP,
+    isRespawning, craftingScrap
   });
 
   // Sync ref with current state in effect instead of render
   useEffect(() => {
     stateRef.current = { 
       playerLevel, currentExp, gold, currentZoneLevel, 
-      finalStats, currentPlayerHP, currentEnemyHP, currentEnemyMaxHP 
+      finalStats, currentPlayerHP, currentEnemyHP, currentEnemyMaxHP,
+      isRespawning, craftingScrap
     };
-  }, [playerLevel, currentExp, gold, currentZoneLevel, finalStats, currentPlayerHP, currentEnemyHP, currentEnemyMaxHP]);
+  }, [playerLevel, currentExp, gold, currentZoneLevel, finalStats, currentPlayerHP, currentEnemyHP, currentEnemyMaxHP, isRespawning, craftingScrap]);
+
+  const processLootDrop = (rarity: 'MAGIC' | 'RARE', itemLevel: number) => {
+    const item = generateItem(rarity, itemLevel);
+    if (item.rarity === 'MAGIC') {
+      const scrapGained = item.itemLevel * 2;
+      setCraftingScrap(prev => prev + scrapGained);
+      setLastLog(`Auto-salvaged Magic ${item.slot} for ${scrapGained} Scrap.`);
+    } else {
+      setInventory(prev => [item, ...prev]);
+      setLastLog(`Dropped a Rare ${item.slot}!`);
+    }
+  };
 
   const spawnMonster = (level: number) => {
+    setIsRespawning(false);
     const stats = getMonsterStats(baseMonsterConfig, level);
     setCurrentEnemyHP(stats.baseEhp);
     setCurrentEnemyMaxHP(stats.baseEhp);
@@ -198,6 +214,8 @@ const IdleGame: React.FC = () => {
   useEffect(() => {
     const tickInterval = setInterval(() => {
       const s = stateRef.current;
+      if (s.isRespawning) return;
+
       const monster = getMonsterStats(baseMonsterConfig, s.currentZoneLevel);
       
       const playerDmg = s.finalStats.dps;
@@ -207,10 +225,12 @@ const IdleGame: React.FC = () => {
       const nextPlayerHP = Math.max(0, s.currentPlayerHP - monsterDmg);
 
       if (nextEnemyHP <= 0) {
+        // Monster Victory Logic
         const rewardMultiplier = Math.pow(1.1, s.currentZoneLevel - 1);
         const earnedExp = monster.baseExp * rewardMultiplier;
         const earnedGold = monster.baseGold * rewardMultiplier;
 
+        // Level up handling
         let newExp = s.currentExp + earnedExp;
         let newLevel = s.playerLevel;
         let nextExpReq = calculateExpToNextLevel(newLevel);
@@ -231,11 +251,24 @@ const IdleGame: React.FC = () => {
         
         setCurrentExp(newExp);
         setGold(s.gold + earnedGold);
-        const nextZone = s.currentZoneLevel + 1;
-        setCurrentZoneLevel(nextZone);
-        spawnMonster(nextZone);
+
+        // Loot Logic
+        if (Math.random() < 0.3) {
+          const rarity = Math.random() < 0.7 ? 'MAGIC' : 'RARE';
+          processLootDrop(rarity, s.currentZoneLevel);
+        }
+
+        // Pacing & Respawn
+        setIsRespawning(true);
+        setCurrentEnemyHP(0);
+        setTimeout(() => {
+          const nextZone = stateRef.current.currentZoneLevel + 1;
+          setCurrentZoneLevel(nextZone);
+          spawnMonster(nextZone);
+        }, 1000);
 
       } else if (nextPlayerHP <= 0) {
+        // Player Death Logic
         const prevZone = Math.max(1, s.currentZoneLevel - 1);
         setCurrentZoneLevel(prevZone);
         setCurrentPlayerHP(s.finalStats.hp);
@@ -254,8 +287,7 @@ const IdleGame: React.FC = () => {
   const handleRollItem = () => {
     if (gold >= 100) {
       setGold(prev => prev - 100);
-      const newItem = generateRareItem();
-      setInventory(prev => [newItem, ...prev]);
+      processLootDrop('RARE', playerLevel);
     }
   };
 
@@ -284,6 +316,12 @@ const IdleGame: React.FC = () => {
   const handleSell = (itemId: string) => {
     setInventory(prev => prev.filter(i => i.id !== itemId));
     setGold(prev => prev + 50);
+  };
+
+  const handleSalvage = (item: Item) => {
+    setInventory(prev => prev.filter(i => i.id !== item.id));
+    const scrapGained = item.itemLevel * (item.rarity === 'RARE' ? 5 : 2);
+    setCraftingScrap(prev => prev + scrapGained);
   };
 
   const handleAllocatePassive = (nodeId: string) => {
@@ -319,7 +357,7 @@ const IdleGame: React.FC = () => {
     <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '20px', color: '#e2e8f0' }}>
       {/* Combat View */}
       <section style={{ backgroundColor: '#1e293b', padding: '20px', borderRadius: '12px', border: '1px solid #334155', marginBottom: '20px' }}>
-        <div style={{ textAlign: 'center', marginBottom: '15px', fontWeight: 'bold' }}>{lastLog}</div>
+        <div style={{ textAlign: 'center', marginBottom: '15px', fontWeight: 'bold' }}>{isRespawning ? "Respawning..." : lastLog}</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px' }}>
           <ProgressBar value={currentPlayerHP} max={finalStats.hp} color="#10b981" label="Player HP" />
           <ProgressBar value={currentEnemyHP} max={currentEnemyMaxHP} color="#ef4444" label="Monster HP" />
@@ -332,6 +370,7 @@ const IdleGame: React.FC = () => {
           <h3 style={{ borderBottom: '1px solid #334155' }}>Character Stats</h3>
           <p>Level: <span style={{ color: '#fbbf24' }}>{playerLevel}</span></p>
           <p>Gold: <span style={{ color: '#fcd34d' }}>{formatLargeNumber(gold)}</span></p>
+          <p>Scrap: <span style={{ color: '#60a5fa' }}>{formatLargeNumber(craftingScrap)}</span></p>
           <div style={{ lineHeight: '1.8' }}>
             <div>DPS: {formatLargeNumber(finalStats.dps)}</div>
             <div>Max HP: {formatLargeNumber(finalStats.hp)}</div>
@@ -395,10 +434,11 @@ const IdleGame: React.FC = () => {
                 {inventory.map(item => (
                   <div key={item.id} className="item-card" style={{ border: '1px solid #334155', borderRadius: '6px', padding: '10px', backgroundColor: '#0f172a', transition: 'all 0.2s' }}>
                     <div style={{ color: '#fbbf24', fontWeight: 'bold', fontSize: '0.8rem' }}>{item.name}</div>
-                    <div style={{ fontSize: '0.65rem', color: '#64748b', marginBottom: '5px' }}>{item.slot}</div>
+                    <div style={{ fontSize: '0.65rem', color: '#64748b', marginBottom: '5px' }}>{item.slot} (iLv {item.itemLevel})</div>
                     {renderAffixes(item)}
                     <div style={{ display: 'flex', gap: '5px', marginTop: '8px' }}>
                       <button onClick={() => handleEquip(item)} style={{ flex: 1, backgroundColor: '#059669', border: 'none', borderRadius: '4px', color: 'white', fontSize: '0.7rem', padding: '3px', cursor: 'pointer' }}>Equip</button>
+                      <button onClick={() => handleSalvage(item)} style={{ flex: 1, backgroundColor: '#4b5563', border: 'none', borderRadius: '4px', color: 'white', fontSize: '0.7rem', padding: '3px', cursor: 'pointer' }}>Salvage</button>
                       <button onClick={() => handleSell(item.id)} style={{ flex: 1, backgroundColor: '#7f1d1d', border: 'none', borderRadius: '4px', color: 'white', fontSize: '0.7rem', padding: '3px', cursor: 'pointer' }}>Sell</button>
                     </div>
                   </div>
