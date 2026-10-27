@@ -31,24 +31,28 @@ export function offlineWindow(lastActiveAt: number | null, now: number): Offline
   return { elapsedMs, simulatedMs, capped: elapsedMs > OFFLINE_CAP_MS, anomaly };
 }
 
-export interface OfflineSummary {
+/** Totals counted from `GameEvent`s; shared by the offline summary and the online session stats. */
+export interface EventTally {
+  xpGained: number;
+  kills: number;
+  deaths: number;
+  encountersCleared: number;
+  zonesUnlocked: ZoneId[];
+  itemsKept: Record<Rarity, number>;
+  salvagedByFilter: number;
+  salvagedByOverflow: number;
+  currencyGained: Record<CurrencyId, number>;
+}
+
+export interface OfflineSummary extends EventTally {
   elapsedMs: number;
   simulatedMs: number;
   capped: boolean;
   /** Sim time actually covered; less than `simulatedMs` only when the event budget ran out. */
   coveredMs: number;
   budgetExhausted: boolean;
-  xpGained: number;
   levelsGained: number;
-  kills: number;
-  deaths: number;
-  encountersCleared: number;
-  zonesUnlocked: ZoneId[];
   mapTiersUnlocked: number;
-  itemsKept: Record<Rarity, number>;
-  salvagedByFilter: number;
-  salvagedByOverflow: number;
-  currencyGained: Record<CurrencyId, number>;
 }
 
 export interface OfflineProgress {
@@ -56,20 +60,13 @@ export interface OfflineProgress {
   totalMs: number;
 }
 
-function emptySummary(window: OfflineWindow): OfflineSummary {
+export function emptyTally(): EventTally {
   return {
-    elapsedMs: window.elapsedMs,
-    simulatedMs: window.simulatedMs,
-    capped: window.capped,
-    coveredMs: 0,
-    budgetExhausted: false,
     xpGained: 0,
-    levelsGained: 0,
     kills: 0,
     deaths: 0,
     encountersCleared: 0,
     zonesUnlocked: [],
-    mapTiersUnlocked: 0,
     itemsKept: Object.fromEntries(RARITIES.map((r) => [r, 0])) as Record<Rarity, number>,
     salvagedByFilter: 0,
     salvagedByOverflow: 0,
@@ -77,7 +74,20 @@ function emptySummary(window: OfflineWindow): OfflineSummary {
   };
 }
 
-function accumulate(summary: OfflineSummary, events: readonly GameEvent[]): void {
+function emptySummary(window: OfflineWindow): OfflineSummary {
+  return {
+    ...emptyTally(),
+    elapsedMs: window.elapsedMs,
+    simulatedMs: window.simulatedMs,
+    capped: window.capped,
+    coveredMs: 0,
+    budgetExhausted: false,
+    levelsGained: 0,
+    mapTiersUnlocked: 0,
+  };
+}
+
+export function tallyEvents(summary: EventTally, events: readonly GameEvent[]): void {
   for (const event of events) {
     switch (event.type) {
       case "monster_killed":
@@ -132,7 +142,7 @@ export function* simulateOffline(
     const chunk = Math.min(OFFLINE_CHUNK_MS, window.simulatedMs - summary.coveredMs);
     const startedAt = state.simTimeMs;
     const result = advance(state, chunk, { eventBudget: budget });
-    accumulate(summary, result.events);
+    tallyEvents(summary, result.events);
     budget -= result.eventsResolved;
     summary.coveredMs += state.simTimeMs - startedAt;
     if (result.budgetExhausted) {

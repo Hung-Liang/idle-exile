@@ -8,6 +8,7 @@ import { appendLog, createInitialState, type GameState } from "../game/state";
 import { createOnlineLoop, type OnlineLoop } from "./loop";
 import { runOfflineInWorker, type OfflineRun } from "./offline-runner";
 import { flushAndSave, needsImmediateSave } from "./persistence";
+import { createSessionStats } from "./session-stats";
 import { claimOwnership } from "./tab-lock";
 import { createCharacterPanel } from "./ui/character-panel";
 import { createCombatPanel } from "./ui/combat-panel";
@@ -146,9 +147,10 @@ function replaceSaveAndReload(): void {
   location.reload();
 }
 
+const sessionStats = createSessionStats();
 const characterPanel = createCharacterPanel();
 const views = {
-  combat: createCombatPanel(onAction),
+  combat: createCombatPanel(onAction, sessionStats),
   inventory: createInventoryPanel(onAction),
   skills: createSkillPanel(onAction),
   maps: createMapPanel(onAction),
@@ -216,6 +218,7 @@ function showLoadNotice(loaded: LoadResult): void {
 // --- Session lifecycle (plan §4.4, §4.5, §11.2) ---
 
 function onTick(events: GameEvent[]): void {
+  sessionStats.record(state, events);
   render();
   if (needsImmediateSave(events)) persist();
 }

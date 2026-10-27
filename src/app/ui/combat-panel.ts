@@ -4,12 +4,49 @@ import { LEVEL_GAP_PCT_PER_LEVEL } from "../../data/balance";
 import { monsterStats } from "../../game/combat";
 import type { ActionResult, PlayerAction } from "../../game/engine";
 import { blockedAutoAdvance } from "../../game/progression";
-import type { GameState } from "../../game/state";
+import { CURRENCIES, type CurrencyId } from "../../data/currencies";
+import type { GameState, LogKind } from "../../game/state";
+import type { SessionStats } from "../session-stats";
 import { resolveActivity } from "../../game/zones";
 import type { Panel } from "./character-panel";
 import { bar, button, el, type Bar } from "./dom";
+import { formatDuration } from "./overlay";
 
 const VISIBLE_LOG_ENTRIES = 50;
+
+/** Rates are shown once this much online time has been recorded, so they are not wildly noisy. */
+const MIN_RATE_SAMPLE_MS = 60_000;
+
+const LOG_FILTERS: readonly (readonly [string, string, readonly LogKind[] | null])[] = [
+  ["all", "All", null],
+  ["combat", "Combat", ["combat"]],
+  ["drop", "Loot", ["drop"]],
+  ["milestones", "Deaths & level-ups", ["death", "level_up"]],
+  ["info", "Progress & errors", ["info", "error"]],
+];
+
+function perHour(count: number, ms: number): string {
+  const rate = (count * 3_600_000) / ms;
+  return rate >= 10_000 ? `${(rate / 1000).toFixed(0)}k` : rate >= 100 ? rate.toFixed(0) : rate.toFixed(1);
+}
+
+function sessionText(stats: SessionStats): string {
+  const ms = stats.elapsedMs;
+  if (ms < MIN_RATE_SAMPLE_MS) return `Session ${formatDuration(ms)}: rates appear after ${formatDuration(MIN_RATE_SAMPLE_MS)} online.`;
+  const t = stats.tally;
+  const kept = t.itemsKept.normal + t.itemsKept.magic + t.itemsKept.rare;
+  const currency = (Object.keys(CURRENCIES) as CurrencyId[])
+    .filter((id) => t.currencyGained[id] > 0)
+    .map((id) => `${CURRENCIES[id].name} ${perHour(t.currencyGained[id], ms)}`);
+  return [
+    `Session ${formatDuration(ms)} — per hour: XP ${perHour(t.xpGained, ms)}`,
+    `kills ${perHour(t.kills, ms)}`,
+    `deaths ${perHour(t.deaths, ms)}`,
+    `items kept ${perHour(kept, ms)}`,
+    `salvaged ${perHour(t.salvagedByFilter + t.salvagedByOverflow, ms)}`,
+    ...(currency.length > 0 ? currency : ["no currency yet"]),
+  ].join(" · ");
+}
 
 function formatSimTime(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -26,7 +63,7 @@ function checkbox(label: string, onChange: (checked: boolean) => void): { root: 
   return { root: el("label", "toggle", input, ` ${label}`), input };
 }
 
-export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResult): Panel {
+export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResult, stats: SessionStats): Panel {
   const zoneTitle = el("h2");
   const progress = bar("progress");
   const status = el("div", "muted");
@@ -51,7 +88,21 @@ export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResu
     button("Resume auto-advance", () => dispatch({ type: "set_auto_advance", value: true })),
   );
 
+  const sessionInfo = el("span");
+  const session = el("div", "stats", sessionInfo, " ", button("Reset", () => stats.reset()));
+
   const logList = el("ol", "log");
+  let logFilter: readonly LogKind[] | null = null;
+  const logSelect = el("select");
+  for (const [value, label] of LOG_FILTERS) {
+    const option = el("option", undefined, label);
+    option.value = value;
+    logSelect.append(option);
+  }
+  logSelect.addEventListener("change", () => {
+    logFilter = LOG_FILTERS.find(([value]) => value === logSelect.value)?.[2] ?? null;
+    lastLogKey = "";
+  });
   const root = el(
     "section",
     "panel",
@@ -64,7 +115,8 @@ export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResu
     gapInfo,
     monstersList,
     controls,
-    el("h3", undefined, "Combat log"),
+    session,
+    el("div", "controls", el("h3", undefined, "Combat log"), logSelect),
     logList,
   );
 
@@ -148,8 +200,11 @@ export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResu
 
       autoRetreat.input.checked = state.settings.autoRetreat;
 
-      const visible = state.log.slice(-VISIBLE_LOG_ENTRIES).reverse();
-      const logKey = `${state.log.length}:${visible[0]?.timeMs ?? -1}:${visible[0]?.text ?? ""}`;
+      sessionInfo.textContent = sessionText(stats);
+
+      const entries = logFilter === null ? state.log : state.log.filter((entry) => logFilter!.includes(entry.kind));
+      const visible = entries.slice(-VISIBLE_LOG_ENTRIES).reverse();
+      const logKey = `${entries.length}:${visible[0]?.timeMs ?? -1}:${visible[0]?.text ?? ""}`;
       if (logKey !== lastLogKey) {
         lastLogKey = logKey;
         logList.replaceChildren(
