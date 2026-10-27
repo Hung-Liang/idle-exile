@@ -57,6 +57,9 @@ export interface Modifier {
   source: SourceRef;
 }
 
+/** A modifier as written in content data; the source is attached when it is collected. */
+export type ModifierSpec = Omit<Modifier, "source">;
+
 export interface AggregateContext {
   tags: readonly Tag[];
   damageType?: DamageType;
