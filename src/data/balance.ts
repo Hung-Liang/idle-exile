@@ -49,7 +49,7 @@ export const RESPAWN_MS = 5_000;
 // --- Recovery and death (plan §6.5, §6.6) ---
 
 /** Percent of max life recovered when an encounter is cleared, before `life_recovery_on_clear`. */
-export const TRANSITION_LIFE_RECOVERY_PCT = 15;
+export const TRANSITION_LIFE_RECOVERY_PCT = 20;
 export const DEATHS_BEFORE_RETREAT = 3;
 
 // --- Level gap: monsters above the character's level gain more life and damage ---
