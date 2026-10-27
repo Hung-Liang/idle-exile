@@ -1,6 +1,6 @@
 import { CURRENCIES, type CurrencyId } from "../data/currencies";
 import { getAffixDefinition } from "../data/affixes";
-import { addRandomAffix, generateAffixes, rollAffixValues } from "./affixes";
+import { addRandomAffix, canAddAffix, generateAffixes, rollAffixValues } from "./affixes";
 import { itemBase, type ItemId, type ItemInstance } from "./equipment";
 import type { GameEvent } from "./events";
 import { describeItem } from "./loot";
@@ -19,6 +19,8 @@ export function canApplyCurrency(item: ItemInstance, currencyId: CurrencyId): bo
       return item.rarity === "magic";
     case "temper_shard":
       return item.rarity !== "normal" && item.affixes.length > 0;
+    case "graft_shard":
+      return item.rarity === "rare" && canAddAffix(item.affixes, itemBase(item).itemClass, item.itemLevel, "rare");
   }
 }
 
@@ -41,6 +43,9 @@ function applyCurrency(state: GameState, item: ItemInstance, currencyId: Currenc
       for (const affix of item.affixes) {
         affix.values = rollAffixValues(getAffixDefinition(affix.affixId), rng);
       }
+      return;
+    case "graft_shard":
+      addRandomAffix(item.affixes, itemClass, item.itemLevel, "rare", rng);
       return;
   }
 }

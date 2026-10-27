@@ -1,4 +1,4 @@
-export type CurrencyId = "kindle_shard" | "flux_shard" | "ascend_shard" | "temper_shard";
+export type CurrencyId = "kindle_shard" | "flux_shard" | "ascend_shard" | "temper_shard" | "graft_shard";
 
 export interface CurrencyDefinition {
   id: CurrencyId;
@@ -31,5 +31,11 @@ export const CURRENCIES: Record<CurrencyId, CurrencyDefinition> = {
     name: "Temper Shard",
     description: "Rerolls the values of all affixes on a Magic or Rare item, keeping tiers.",
     dropWeight: 8,
+  },
+  graft_shard: {
+    id: "graft_shard",
+    name: "Graft Shard",
+    description: "Adds one random affix to a Rare item with room for it.",
+    dropWeight: 4,
   },
 };

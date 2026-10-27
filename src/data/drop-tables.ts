@@ -63,5 +63,6 @@ export const SALVAGE_YIELDS: Record<Rarity, SalvageYield[]> = {
     { currencyId: "flux_shard", chance: 1 },
     { currencyId: "ascend_shard", chance: 0.2 },
     { currencyId: "temper_shard", chance: 0.1 },
+    { currencyId: "graft_shard", chance: 0.05 },
   ],
 };

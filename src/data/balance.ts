@@ -12,13 +12,14 @@ export const INVENTORY_CAPACITY = 60;
 export const LOG_CAPACITY = 200;
 
 export const ZONE_REQUIRED_ENCOUNTERS = 10;
-export const MAX_MAP_TIER = 5;
+export const MAX_MAP_TIER = 10;
 
 /** Auto-advance only enters an area once the character is at most this many levels below it. */
 export const AUTO_ADVANCE_LEVEL_MARGIN = 2;
 
+/** Capped at MAX_LEVEL, so map tiers above the level cap stay reachable by auto-advance. */
 export function autoAdvanceLevel(monsterLevel: number): number {
-  return monsterLevel - AUTO_ADVANCE_LEVEL_MARGIN;
+  return Math.min(MAX_LEVEL, monsterLevel - AUTO_ADVANCE_LEVEL_MARGIN);
 }
 
 // --- Character (plan §6.1) ---

@@ -45,7 +45,7 @@ describe("canApplyCurrency", () => {
     const table = (target: ItemInstance) => CURRENCY_IDS.filter((id) => canApplyCurrency(target, id));
     expect(table(item("normal", 0))).toEqual(["kindle_shard"]);
     expect(table(item("magic"))).toEqual(["flux_shard", "ascend_shard", "temper_shard"]);
-    expect(table(item("rare"))).toEqual(["temper_shard"]);
+    expect(table(item("rare"))).toEqual(["temper_shard", "graft_shard"]);
     expect(table(item("magic", 0))).toEqual(["flux_shard", "ascend_shard"]);
   });
 });
@@ -101,6 +101,24 @@ describe("use_currency", () => {
     expectValid(state);
   });
 
+  it("Graft adds one affix to a Rare, keeping the others, until no slot is left", () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const { state, item } = setup("rare", seed);
+      state.inventory.currency.graft_shard = 10;
+      while (canApplyCurrency(item, "graft_shard")) {
+        const before = structuredClone(item.affixes);
+        expect(dispatch(state, { type: "use_currency", currencyId: "graft_shard", itemId: item.id }).ok).toBe(true);
+        expect(item.affixes.slice(0, before.length)).toEqual(before);
+        expect(item.affixes).toHaveLength(before.length + 1);
+        expectValid(state);
+      }
+      // Full, or no eligible affix left for the open category.
+      const limits = AFFIX_CATEGORY_LIMITS.rare;
+      expect(item.affixes.length).toBeLessThanOrEqual(limits.prefix + limits.suffix);
+      expect(dispatch(state, { type: "use_currency", currencyId: "graft_shard", itemId: item.id })).toEqual({ ok: false, reason: "invalid_target" });
+    }
+  });
+
   it("rejects invalid targets without consuming currency or changing anything", () => {
     const cases: [Rarity, CurrencyId][] = [
       ["normal", "flux_shard"],
@@ -110,6 +128,8 @@ describe("use_currency", () => {
       ["rare", "kindle_shard"],
       ["rare", "flux_shard"],
       ["rare", "ascend_shard"],
+      ["normal", "graft_shard"],
+      ["magic", "graft_shard"],
     ];
     for (const [rarity, currencyId] of cases) {
       const { state, item } = setup(rarity);

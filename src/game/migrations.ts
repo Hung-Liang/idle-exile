@@ -1,7 +1,11 @@
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 /** Raw, unvalidated save JSON. Migrations must not assume anything beyond `schemaVersion`. */
 export type RawSave = Record<string, unknown>;
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
 
 export interface Migration {
   /** Upgrades a save at schema version `from` to `from + 1`. */
@@ -13,7 +17,19 @@ export interface Migration {
  * Ordered list of migrations. Every schema change appends one entry (v_N → v_N+1),
  * bumps CURRENT_SCHEMA_VERSION, and adds a round-trip test with a fixture save of v_N.
  */
-export const MIGRATIONS: readonly Migration[] = [];
+export const MIGRATIONS: readonly Migration[] = [
+  {
+    // v2 (plan v0.4.0): adds the Graft Shard currency.
+    from: 1,
+    migrate: (raw) => {
+      const state = raw.state;
+      // Malformed saves are left to the validator, which reports them after migration.
+      if (!isRecord(state) || !isRecord(state.inventory) || !isRecord(state.inventory.currency)) return raw;
+      const inventory = { ...state.inventory, currency: { ...state.inventory.currency, graft_shard: 0 } };
+      return { ...raw, state: { ...state, inventory } };
+    },
+  },
+];
 
 export type MigrateResult = { ok: true; raw: RawSave } | { ok: false; error: string };
 

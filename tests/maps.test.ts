@@ -172,6 +172,16 @@ describe("map progress", () => {
     expect(state.progression.activity).toMatchObject({ kind: "map", tier: 2, encountersCleared: 0 });
   });
 
+  it("tiers above the level cap only require the level cap to auto-advance", () => {
+    expect(MAP_TIERS.at(-1)!.monsterLevel).toBeGreaterThan(MAX_LEVEL);
+    expect(autoAdvanceLevel(MAP_TIERS.at(-1)!.monsterLevel)).toBe(MAX_LEVEL);
+    const state = inMap(7, [], 7);
+    state.character.level = MAX_LEVEL;
+    recordBossDefeated(state, []);
+    expect(state.progression.unlockedMapTier).toBe(8);
+    expect(state.progression.activity).toMatchObject({ kind: "map", tier: 8 });
+  });
+
   it("caps unlocks at the highest tier", () => {
     const state = inMap(MAX_MAP_TIER, []);
     recordBossDefeated(state, []);

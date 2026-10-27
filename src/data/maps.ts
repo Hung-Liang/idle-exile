@@ -15,6 +15,12 @@ export const MAP_TIERS: readonly MapTierDefinition[] = [
   { tier: 3, monsterLevel: 44, quantityPct: 20, rarityPct: 20 },
   { tier: 4, monsterLevel: 46, quantityPct: 30, rarityPct: 30 },
   { tier: 5, monsterLevel: 48, quantityPct: 40, rarityPct: 40 },
+  // Tiers 6–10 (plan v0.4.0) go past the level cap: the level gap makes them a gear check.
+  { tier: 6, monsterLevel: 50, quantityPct: 50, rarityPct: 50 },
+  { tier: 7, monsterLevel: 52, quantityPct: 60, rarityPct: 60 },
+  { tier: 8, monsterLevel: 54, quantityPct: 70, rarityPct: 70 },
+  { tier: 9, monsterLevel: 56, quantityPct: 80, rarityPct: 80 },
+  { tier: 10, monsterLevel: 58, quantityPct: 90, rarityPct: 90 },
 ];
 
 export const MAP_REQUIRED_ENCOUNTERS = 12;

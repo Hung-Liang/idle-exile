@@ -37,6 +37,12 @@ function openCategories(rarity: Rarity, affixes: readonly RolledAffix[]): AffixC
   return (["prefix", "suffix"] as const).filter((category) => used[category] < limits[category]);
 }
 
+/** Whether `addRandomAffix` would find an eligible affix. */
+export function canAddAffix(affixes: readonly RolledAffix[], itemClass: ItemClass, itemLevel: number, rarity: Rarity): boolean {
+  const presentGroups = new Set(affixes.map((a) => getAffixDefinition(a.affixId).group));
+  return eligibleAffixes(itemClass, itemLevel, openCategories(rarity, affixes), presentGroups).length > 0;
+}
+
 /**
  * Draws one affix by weight among those allowed on the item and appends it. Returns false (and
  * changes nothing) when no affix is eligible.
