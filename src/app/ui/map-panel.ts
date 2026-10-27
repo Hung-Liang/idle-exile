@@ -43,7 +43,7 @@ export function createMapPanel(dispatch: (action: PlayerAction) => ActionResult)
     return el(
       "table",
       "grid-table",
-      el("tr", undefined, ...["Zone", "Level", "Progress", "Boss", ""].map((h) => el("th", undefined, h))),
+      el("tr", undefined, ...["Zone", "Level", "Progress", "Boss", ""].map((h) => el("th", h === "Level" ? "num" : undefined, h))),
       ...rows,
     );
   }
@@ -71,7 +71,7 @@ export function createMapPanel(dispatch: (action: PlayerAction) => ActionResult)
     return el(
       "table",
       "grid-table",
-      el("tr", undefined, ...["Map", "Level", "Quantity", "Rarity", ""].map((h) => el("th", undefined, h))),
+      el("tr", undefined, ...["Map", "Level", "Quantity", "Rarity", ""].map((h) => el("th", h === "Map" || h === "" ? undefined : "num", h))),
       ...rows,
     );
   }
@@ -85,11 +85,10 @@ export function createMapPanel(dispatch: (action: PlayerAction) => ActionResult)
       if (key === lastKey) return;
       lastKey = key;
       root.replaceChildren(
-        el("h2", undefined, "Maps"),
         el("div", "error", message),
-        el("h3", undefined, "Campaign"),
+        el("h2", undefined, "Campaign"),
         zoneTable(state),
-        el("h3", undefined, `Map tiers (${unlockedMapTier} / ${MAX_MAP_TIER} unlocked)`),
+        el("h2", undefined, `Map tiers (${unlockedMapTier} / ${MAX_MAP_TIER} unlocked)`),
         el("p", "muted", "Each run: 12 encounters + boss, with 0–2 random modifiers. Starting a run rolls new modifiers."),
         mapTable(state),
       );

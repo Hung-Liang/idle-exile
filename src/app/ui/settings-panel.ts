@@ -84,11 +84,10 @@ export function createSettingsPanel(controls: SaveControls, dispatch: (action: P
   const root = el(
     "section",
     "panel",
-    el("h2", undefined, "Settings"),
-    el("h3", undefined, "Gameplay"),
+    el("h2", undefined, "Gameplay"),
     autoAdvance.root,
     autoRetreat.root,
-    el("h3", undefined, "Loot filter"),
+    el("h2", undefined, "Loot filter"),
     filterRoot,
     filterError,
     el("h2", undefined, "Save"),

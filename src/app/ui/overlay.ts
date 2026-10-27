@@ -68,7 +68,7 @@ export function createOverlay(): Overlay {
       show(el("h2", undefined, title), el("p", undefined, text), ...(actions.length > 0 ? [el("div", "controls", ...actions)] : []));
     },
     progress(p) {
-      progressBar.set(p.simulatedSoFar, p.totalMs, `${formatDuration(p.simulatedSoFar)} / ${formatDuration(p.totalMs)}`);
+      progressBar.set(p.simulatedSoFar, p.totalMs, "Simulated", `${formatDuration(p.simulatedSoFar)} / ${formatDuration(p.totalMs)}`);
       if (!box.contains(progressBar.root)) show(el("h2", undefined, "Simulating time away…"), progressBar.root);
     },
     summary(summary, onClose) {

@@ -13,18 +13,21 @@ export function el<K extends keyof HTMLElementTagNameMap>(
 
 export interface Bar {
   root: HTMLElement;
-  set(value: number, max: number, label: string): void;
+  /** `figure` is the numeric readout, set right-aligned in tabular figures beside the label. */
+  set(value: number, max: number, label: string, figure?: string): void;
 }
 
 export function bar(kind: string): Bar {
   const fill = el("div", "bar-fill");
   const text = el("span", "bar-label");
-  const root = el("div", `bar bar-${kind}`, fill, text);
+  const value = el("span", "bar-value num");
+  const root = el("div", `bar bar-${kind}`, el("div", "bar-head", text, value), el("div", "bar-track", fill));
   return {
     root,
-    set(value, max, label) {
-      fill.style.width = `${max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0}%`;
+    set(current, max, label, figure) {
+      fill.style.width = `${max > 0 ? Math.max(0, Math.min(100, (current / max) * 100)) : 0}%`;
       text.textContent = label;
+      value.textContent = figure ?? "";
     },
   };
 }

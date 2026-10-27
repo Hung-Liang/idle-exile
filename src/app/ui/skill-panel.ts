@@ -86,7 +86,7 @@ export function createSkillPanel(dispatch: Dispatch): Panel {
     const head = el(
       "tr",
       undefined,
-      ...["Skill", "Tags", "Effect", "DPS single / pack*", ""].map((h) => el("th", undefined, h)),
+      ...["Skill", "Tags", "Effect", "DPS single / pack*", ""].map((h) => el("th", h.startsWith("DPS") ? "num" : undefined, h)),
     );
     return el("table", "grid-table", el("thead", undefined, head), el("tbody", undefined, ...rows));
   }
@@ -255,14 +255,13 @@ export function createSkillPanel(dispatch: Dispatch): Panel {
       lastKey = key;
 
       root.replaceChildren(
-        el("h2", undefined, "Skills"),
         el("div", "error", message),
-        el("h3", undefined, "Active skill"),
+        el("h2", undefined, "Active skill"),
         skillTable(state),
         el("div", "muted", "* standardized estimate with the current supports; incompatible supports are dropped on switch."),
-        el("h3", undefined, "Supports"),
+        el("h2", undefined, "Supports"),
         supportSection(state),
-        el("h3", undefined, "Passive tree"),
+        el("h2", undefined, "Passive tree"),
         passiveSection(state),
       );
     },

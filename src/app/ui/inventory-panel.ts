@@ -34,7 +34,8 @@ export function createInventoryPanel(dispatch: Dispatch): Panel {
   /** `current` is given for unequipped items, which are then marked when they would be an upgrade. */
   function itemRow(state: GameState, itemId: ItemId, prefix: string, current?: BuildEvaluation): HTMLElement {
     const item = state.inventory.items[itemId]!;
-    const row = el("li", `item rarity-${item.rarity}${itemId === selected ? " selected" : ""}`, `${prefix}${item.locked === true ? "🔒 " : ""}${itemTitle(item)}`);
+    const row = el("li", `item rarity-${item.rarity}${itemId === selected ? " selected" : ""}`, `${prefix}${itemTitle(item)}`);
+    if (item.locked === true) row.append(el("span", "tag", "Locked"));
     if (current !== undefined && improvesBuild(state, item, current)) {
       const mark = el("span", "delta-up", " ▲");
       mark.title = "Upgrade over the equipped item (standardized estimate)";
@@ -163,7 +164,7 @@ export function createInventoryPanel(dispatch: Dispatch): Panel {
       );
 
       root.replaceChildren(
-        el("h2", undefined, `Inventory (${inventory.order.length} / ${INVENTORY_CAPACITY})`),
+        el("header", "panel-head", el("h2", undefined, "Carried items"), el("span", "muted num", `${inventory.order.length} / ${INVENTORY_CAPACITY}`)),
         el("div", "stats", currency),
         el("div", "error", message),
         el(

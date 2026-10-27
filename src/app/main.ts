@@ -164,23 +164,47 @@ const VIEW_LABELS: Record<View, string> = {
   maps: "Maps",
   settings: "Settings",
 };
+// 20×20 outline icons drawn with currentColor; static markup, never user data.
+const VIEW_ICONS: Record<View, string> = {
+  combat: '<path d="M16 4 7 13M5.5 11.5l3 3M4 16l2-2M16 4v3M16 4h-3"/>',
+  inventory: '<path d="M5 7h10l-1 10H6L5 7Z"/><path d="M8 7V5.5a2 2 0 0 1 4 0V7"/>',
+  skills: '<path d="m10 3 1.6 5.4L17 10l-5.4 1.6L10 17l-1.6-5.4L3 10l5.4-1.6L10 3Z"/>',
+  maps: '<path d="m3 5 5-2 4 2 5-2v12l-5 2-4-2-5 2V5Z"/><path d="M8 3v12M12 5v12"/>',
+  settings: '<path d="M3 6h14M3 14h14"/><circle cx="7" cy="6" r="2"/><circle cx="13" cy="14" r="2"/>',
+};
+
+function icon(paths: string): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 20 20");
+  svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML = paths;
+  return svg;
+}
+
 let view: View = "combat";
 
 const navButtons = (Object.keys(views) as View[]).map((name) => {
-  const b = el("button", undefined, VIEW_LABELS[name]);
+  const b = el("button", `rail-item rail-${name}`, icon(VIEW_ICONS[name]), el("span", "rail-label", VIEW_LABELS[name]));
   b.type = "button";
+  b.title = VIEW_LABELS[name];
+  b.setAttribute("aria-label", VIEW_LABELS[name]);
   b.addEventListener("click", () => {
     view = name;
     render();
   });
   return [name, b] as const;
 });
-const nav = el("nav", "nav", ...navButtons.map(([, b]) => b));
+const brand = el("div", "brand", icon('<path d="M10 2.5 16 6.5v7L10 17.5 4 13.5v-7L10 2.5Z"/><path d="M10 6.5v7"/>'));
+brand.title = "Exile Idle";
+const nav = el("nav", "rail", brand, ...navButtons.map(([, b]) => b));
+nav.setAttribute("aria-label", "Screens");
+const title = el("h1");
+const titleRow = el("header", "title-row", title);
 const viewRoot = el("div", "view");
 const notice = el("div", "notice panel error");
 notice.hidden = true;
 const overlay = createOverlay();
-const shell = [notice, nav, characterPanel.root, viewRoot];
+const shell = [notice, nav, titleRow, characterPanel.root, viewRoot];
 for (const node of shell) node.hidden = true;
 root.replaceChildren(...shell, overlay.root);
 
@@ -197,7 +221,12 @@ function hideNotice(): void {
 function render(): void {
   if (phase === "starting" || phase === "blocked" || phase === "crashed") return;
   characterPanel.render(state);
-  for (const [name, b] of navButtons) b.classList.toggle("active", name === view);
+  for (const [name, b] of navButtons) {
+    b.classList.toggle("active", name === view);
+    if (name === view) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
+  }
+  title.textContent = VIEW_LABELS[view];
   const panel = views[view];
   if (viewRoot.firstChild !== panel.root) viewRoot.replaceChildren(panel.root);
   panel.render(state);
@@ -305,7 +334,7 @@ function boot(): void {
   state = loaded.state;
   lastActiveAt = loaded.lastActiveAt;
   showLoadNotice(loaded);
-  for (const node of [nav, characterPanel.root, viewRoot]) node.hidden = false;
+  for (const node of [nav, titleRow, characterPanel.root, viewRoot]) node.hidden = false;
   phase = "settling";
   render();
   void settle();

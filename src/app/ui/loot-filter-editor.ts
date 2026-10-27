@@ -36,7 +36,7 @@ export function lootFilterEditor(rules: readonly LootFilterRule[], set: (next: L
         `${describeRule(rule)} `,
         button("↑", () => set(rules.map((r, j) => (j === i - 1 ? rules[i]! : j === i ? rules[i - 1]! : r))), i === 0 ? "Already first" : undefined),
         button("↓", () => set(rules.map((r, j) => (j === i + 1 ? rules[i]! : j === i ? rules[i + 1]! : r))), i === rules.length - 1 ? "Already last" : undefined),
-        button("✕", () => set(rules.filter((_, j) => j !== i))),
+        button("Remove", () => set(rules.filter((_, j) => j !== i))),
       ),
     ),
   );
