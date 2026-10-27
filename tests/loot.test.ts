@@ -7,10 +7,11 @@ import type { GameEvent } from "../src/game/events";
 import { filterAction, ruleMatches } from "../src/game/loot-filter";
 import { generateItem, receiveItem, rollItemBase, rollMonsterDrops, salvageYield } from "../src/game/loot";
 import { createStreamState } from "../src/game/random";
-import { createInitialState, type GameState } from "../src/game/state";
+import { createInitialState, type GameState, type LootFilterRule } from "../src/game/state";
 import { validateState } from "../src/game/validate";
 
 const NO_BONUS = { quantityPct: 0, rarityPct: 0 };
+const noUpgrade = () => false;
 
 function expectValid(state: GameState): void {
   const result = validateState(state);
@@ -58,25 +59,63 @@ describe("generateItem", () => {
 describe("loot filter", () => {
   it("default filter keeps magic and rare, salvages normal", () => {
     const rules = createInitialState(1).settings.lootFilter;
-    expect(filterAction(rules, ring("normal"))).toBe("salvage");
-    expect(filterAction(rules, ring("magic"))).toBe("keep");
-    expect(filterAction(rules, ring("rare"))).toBe("keep");
+    expect(filterAction(rules, ring("normal"), noUpgrade)).toBe("salvage");
+    expect(filterAction(rules, ring("magic"), noUpgrade)).toBe("keep");
+    expect(filterAction(rules, ring("rare"), noUpgrade)).toBe("keep");
   });
 
   it("first matching rule wins; no match keeps", () => {
     const item = ring("rare", [{ affixId: "life_t4", values: [12] }]);
-    expect(filterAction([{ slots: ["ring2"], action: "salvage" }, { action: "keep" }], item)).toBe("salvage");
-    expect(filterAction([{ slots: ["weapon"], action: "salvage" }], item)).toBe("keep");
-    expect(filterAction([], item)).toBe("keep");
+    expect(filterAction([{ slots: ["ring2"], action: "salvage" }, { action: "keep" }], item, noUpgrade)).toBe("salvage");
+    expect(filterAction([{ slots: ["weapon"], action: "salvage" }], item, noUpgrade)).toBe("keep");
+    expect(filterAction([], item, noUpgrade)).toBe("keep");
   });
 
   it("matches item level and stats", () => {
     const item = ring("magic", [{ affixId: "res_cold_t4", values: [8] }], 10);
-    expect(ruleMatches({ minItemLevel: 10, action: "keep" }, item)).toBe(true);
-    expect(ruleMatches({ minItemLevel: 11, action: "keep" }, item)).toBe(false);
-    expect(ruleMatches({ hasStat: ["life_max", "resistance"], action: "keep" }, item)).toBe(true);
-    expect(ruleMatches({ hasStat: ["life_max"], action: "keep" }, item)).toBe(false);
-    expect(ruleMatches({ minRarity: "rare", action: "keep" }, item)).toBe(false);
+    expect(ruleMatches({ minItemLevel: 10, action: "keep" }, item, noUpgrade)).toBe(true);
+    expect(ruleMatches({ minItemLevel: 11, action: "keep" }, item, noUpgrade)).toBe(false);
+    expect(ruleMatches({ hasStat: ["life_max", "resistance"], action: "keep" }, item, noUpgrade)).toBe(true);
+    expect(ruleMatches({ hasStat: ["life_max"], action: "keep" }, item, noUpgrade)).toBe(false);
+    expect(ruleMatches({ minRarity: "rare", action: "keep" }, item, noUpgrade)).toBe(false);
+  });
+
+  it("evaluates the upgrade condition last and at most once per item", () => {
+    const item = ring("magic");
+    let calls = 0;
+    const upgrade = () => {
+      calls += 1;
+      return true;
+    };
+    const rules: LootFilterRule[] = [
+      { minRarity: "rare", upgrade: true, action: "keep" },
+      { upgrade: true, slots: ["ring1"], action: "salvage" },
+      { upgrade: true, action: "keep" },
+    ];
+    expect(filterAction(rules, item, upgrade)).toBe("salvage");
+    expect(calls).toBe(1);
+    expect(filterAction([{ upgrade: true, action: "salvage" }], item, noUpgrade)).toBe("keep");
+  });
+});
+
+describe("receiveItem: upgrade rule", () => {
+  it("keeps only items that would improve the current build", () => {
+    const state = createInitialState(1);
+    state.settings.lootFilter = [{ upgrade: true, action: "keep" }, { action: "salvage" }];
+    const events: GameEvent[] = [];
+    const lifeRing: ItemInstance = { ...ring("magic", [{ affixId: "life_t4", values: [15] }]), id: formatItemId(state.nextItemId++) };
+    receiveItem(state, lifeRing, events);
+    expect(state.inventory.order).toEqual([lifeRing.id]);
+
+    // Both ring slots now hold a better ring.
+    state.inventory.order = [];
+    const other = formatItemId(state.nextItemId++);
+    state.inventory.items[other] = { ...lifeRing, id: other };
+    state.character.equipment.ring1 = lifeRing.id;
+    state.character.equipment.ring2 = other;
+    const worse: ItemInstance = { ...ring("magic", [{ affixId: "life_t4", values: [10] }]), id: formatItemId(state.nextItemId++) };
+    receiveItem(state, worse, events);
+    expect(state.inventory.order).toEqual([]);
   });
 });
 

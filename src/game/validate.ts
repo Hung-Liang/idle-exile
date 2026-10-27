@@ -198,6 +198,7 @@ function checkItem(c: Checker, path: string, key: string, item: unknown): number
   c.ref(`${path}.baseId`, item.baseId, ITEM_BASES);
   c.intInRange(`${path}.itemLevel`, item.itemLevel, 1, 1000);
   if (!RARITIES.includes(item.rarity as never)) c.fail(`${path}.rarity`, "unknown rarity");
+  if (item.locked !== undefined && item.locked !== true) c.fail(`${path}.locked`, "expected true when present");
   if (c.arr(`${path}.affixes`, item.affixes)) {
     const base = has(ITEM_BASES, item.baseId) ? ITEM_BASES[item.baseId as keyof typeof ITEM_BASES] : null;
     const used = { prefix: 0, suffix: 0 };
@@ -355,6 +356,7 @@ function checkLootFilter(c: Checker, path: string, v: unknown): void {
     if (rule.action !== "keep" && rule.action !== "salvage") c.fail(`${rp}.action`, "expected keep or salvage");
     if (rule.minRarity !== undefined && !RARITIES.includes(rule.minRarity as never)) c.fail(`${rp}.minRarity`, "unknown rarity");
     if (rule.minItemLevel !== undefined) c.nonNegInt(`${rp}.minItemLevel`, rule.minItemLevel);
+    if (rule.upgrade !== undefined && rule.upgrade !== true) c.fail(`${rp}.upgrade`, "expected true when present");
     if (rule.slots !== undefined && c.arr(`${rp}.slots`, rule.slots)) {
       rule.slots.forEach((s, j) => {
         if (!EQUIP_SLOTS.includes(s as never)) c.fail(`${rp}.slots[${j}]`, "unknown slot");

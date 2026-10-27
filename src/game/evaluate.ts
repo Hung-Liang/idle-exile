@@ -1,6 +1,6 @@
 import { EVALUATE_DAMAGE_MIX, EVALUATE_PACK_SIZE, monsterBaseDamage } from "../data/balance";
 import { attackPortions, mitigatePortion, resolveHit, type HitTarget } from "./combat";
-import type { EquipSlot, ItemId } from "./equipment";
+import { itemBase, slotsForClass, type EquipSlot, type ItemId, type ItemInstance } from "./equipment";
 import { DAMAGE_TYPES } from "./modifiers";
 import {
   attackIntervalMs,
@@ -116,4 +116,28 @@ export interface EquipComparison {
 
 export function compareEquip(state: GameState, itemId: ItemId, slot: EquipSlot): EquipComparison {
   return { current: evaluateState(state), candidate: evaluateState(withEquipment(state, slot, itemId)) };
+}
+
+/** Allowed relative loss on the other metric when one improves (plan §8.8, §14.4). */
+export const UPGRADE_TOLERANCE = 0.05;
+
+/**
+ * Single-target DPS or EHP improves while the other loses at most UPGRADE_TOLERANCE, and the
+ * product grows: otherwise swapping a DPS item and an EHP item back and forth would satisfy the
+ * rule in both directions forever.
+ */
+export function isUpgrade(current: BuildEvaluation, candidate: BuildEvaluation): boolean {
+  const dps = candidate.singleTargetDps / current.singleTargetDps;
+  const ehp = candidate.ehp / current.ehp;
+  return ((dps > 1 && ehp >= 1 - UPGRADE_TOLERANCE) || (ehp > 1 && dps >= 1 - UPGRADE_TOLERANCE)) && dps * ehp > 1 + 1e-9;
+}
+
+/**
+ * Whether equipping `item` in any of its slots would pass `isUpgrade` against the current build.
+ * The item does not need to be in the inventory yet (the loot filter checks fresh drops), and
+ * its level requirement is ignored so items for the next few levels can be kept.
+ */
+export function improvesBuild(state: GameState, item: ItemInstance, current: BuildEvaluation = evaluateState(state)): boolean {
+  const view: GameState = { ...state, inventory: { ...state.inventory, items: { ...state.inventory.items, [item.id]: item } } };
+  return slotsForClass(itemBase(item).itemClass).some((slot) => isUpgrade(current, evaluateState(withEquipment(view, slot, item.id))));
 }

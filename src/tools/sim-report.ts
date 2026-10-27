@@ -34,7 +34,7 @@ import { mapTier } from "../data/maps";
 import { ZONE_ORDER, ZONES, type ZoneId } from "../data/zones";
 import { advance, dispatch } from "../game/engine";
 import { itemBase, RARITIES, slotsForClass, type EquipSlot, type Rarity } from "../game/equipment";
-import { evaluateBuild, evaluateState, withEquipment, type BuildEvaluation } from "../game/evaluate";
+import { evaluateBuild, evaluateState, isUpgrade, withEquipment, type BuildEvaluation } from "../game/evaluate";
 import { describeItem, generateItem } from "../game/loot";
 import { createStreamState, weightedIndex } from "../game/random";
 import { collectBuild, computeMaxLife } from "../game/stats";
@@ -154,17 +154,6 @@ function assertValid(state: GameState, what: string): void {
   if (!validation.ok) {
     throw new Error(`invalid ${what}: ${validation.errors.join("; ")}`);
   }
-}
-
-/** Allowed relative loss on the other metric when one improves (plan §14.4). */
-const GEAR_TOLERANCE = 0.05;
-
-function isUpgrade(current: BuildEvaluation, candidate: BuildEvaluation): boolean {
-  const dps = candidate.singleTargetDps / current.singleTargetDps;
-  const ehp = candidate.ehp / current.ehp;
-  // The product must also grow: otherwise swapping a DPS item and an EHP item back and forth
-  // would satisfy the rule in both directions forever.
-  return ((dps > 1 && ehp >= 1 - GEAR_TOLERANCE) || (ehp > 1 && dps >= 1 - GEAR_TOLERANCE)) && dps * ehp > 1 + 1e-9;
 }
 
 /**

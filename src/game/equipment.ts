@@ -40,6 +40,8 @@ export interface ItemInstance {
   itemLevel: number;
   rarity: Rarity;
   affixes: RolledAffix[];
+  /** Locked items cannot be salvaged. Absent = unlocked. */
+  locked?: true;
 }
 
 export function formatItemId(n: number): ItemId {

@@ -3,8 +3,11 @@ import type { LootFilterRule } from "./state";
 
 export type FilterAction = LootFilterRule["action"];
 
-/** Every condition present on the rule must hold; a rule without conditions matches everything. */
-export function ruleMatches(rule: LootFilterRule, item: ItemInstance): boolean {
+/**
+ * Every condition present on the rule must hold; a rule without conditions matches everything.
+ * `isUpgrade` is only called when every cheaper condition already holds.
+ */
+export function ruleMatches(rule: LootFilterRule, item: ItemInstance, isUpgrade: () => boolean): boolean {
   if (rule.minRarity !== undefined && rarityRank(item.rarity) < rarityRank(rule.minRarity)) {
     return false;
   }
@@ -23,10 +26,15 @@ export function ruleMatches(rule: LootFilterRule, item: ItemInstance): boolean {
       return false;
     }
   }
+  if (rule.upgrade === true && !isUpgrade()) {
+    return false;
+  }
   return true;
 }
 
 /** The first matching rule decides (plan §9.2). Items no rule matches are kept. */
-export function filterAction(rules: readonly LootFilterRule[], item: ItemInstance): FilterAction {
-  return rules.find((rule) => ruleMatches(rule, item))?.action ?? "keep";
+export function filterAction(rules: readonly LootFilterRule[], item: ItemInstance, isUpgrade: () => boolean): FilterAction {
+  let upgrade: boolean | undefined;
+  const memo = () => (upgrade ??= isUpgrade());
+  return rules.find((rule) => ruleMatches(rule, item, memo))?.action ?? "keep";
 }

@@ -5,7 +5,7 @@ import { describeItem, salvageYield } from "./loot";
 import { clampLifeToMax } from "./stats";
 import { appendLog, type GameState } from "./state";
 
-export type InventoryError = "item_not_found" | "invalid_slot" | "level_too_low" | "slot_empty" | "inventory_full";
+export type InventoryError = "item_not_found" | "invalid_slot" | "level_too_low" | "slot_empty" | "inventory_full" | "item_locked";
 
 /** The default slot for an item class: the first empty matching slot, otherwise the first one. */
 export function defaultSlot(state: GameState, itemId: ItemId): EquipSlot | null {
@@ -58,9 +58,26 @@ export function salvageItem(state: GameState, itemId: ItemId, events: GameEvent[
   const index = state.inventory.order.indexOf(itemId);
   const item = state.inventory.items[itemId];
   if (index < 0 || item === undefined) return "item_not_found";
+  if (item.locked === true) return "item_locked";
   state.inventory.order.splice(index, 1);
   delete state.inventory.items[itemId];
   salvageYield(state, item, events);
   events.push({ type: "item_salvaged", timeMs: state.simTimeMs, itemId });
   return null;
+}
+
+/** Locks or unlocks an equipped or unequipped item. */
+export function setItemLocked(state: GameState, itemId: ItemId, locked: boolean): InventoryError | null {
+  const item = state.inventory.items[itemId];
+  if (item === undefined) return "item_not_found";
+  if (locked) item.locked = true;
+  else delete item.locked;
+  return null;
+}
+
+/** Salvages every unequipped, unlocked item, in inventory order. */
+export function salvageUnlocked(state: GameState, events: GameEvent[]): void {
+  const targets = state.inventory.order.filter((id) => state.inventory.items[id]!.locked !== true);
+  for (const itemId of targets) salvageItem(state, itemId, events);
+  if (targets.length > 0) appendLog(state, "info", `Salvaged ${targets.length} unlocked item${targets.length === 1 ? "" : "s"}.`);
 }

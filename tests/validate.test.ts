@@ -263,6 +263,11 @@ describe("validateState", () => {
 
     it("rejects invalid loot filter rules", () => {
       expectRejected((s) => s.settings.lootFilter.push({ action: "destroy" } as never), "settings.lootFilter[2].action");
+      expectRejected((s) => s.settings.lootFilter.push({ upgrade: false, action: "keep" } as never), "settings.lootFilter[2].upgrade");
+    });
+
+    it("rejects a non-true locked flag", () => {
+      expectRejected((s) => ((s.inventory.items[s.character.equipment.weapon!] as { locked?: unknown }).locked = false), ".locked");
     });
   });
 });

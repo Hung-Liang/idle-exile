@@ -60,6 +60,8 @@ export interface LootFilterRule {
   minItemLevel?: number;
   /** Matches if the item has any of these stats. */
   hasStat?: StatId[];
+  /** Matches if the item would be an upgrade over the current equipment (`improvesBuild`). */
+  upgrade?: true;
   action: "keep" | "salvage";
 }
 

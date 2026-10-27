@@ -5,6 +5,7 @@ import { ITEM_BASES, type ItemBaseDefinition, type ItemBaseId } from "../data/it
 import { generateAffixes } from "./affixes";
 import { EQUIP_SLOTS, formatItemId, itemBase, RARITIES, SLOT_ITEM_CLASS, type ItemInstance, type Rarity } from "./equipment";
 import type { GameEvent } from "./events";
+import { improvesBuild } from "./evaluate";
 import { filterAction } from "./loot-filter";
 import { nextChance, nextInt, pickWeighted, weightedIndex, type RngState, type WeightedList } from "./random";
 import { appendLog, type GameState } from "./state";
@@ -77,7 +78,8 @@ export function salvageYield(state: GameState, item: ItemInstance, events: GameE
  * inventory, salvaged ones yield currency. A kept item that does not fit is salvaged as overflow.
  */
 export function receiveItem(state: GameState, item: ItemInstance, events: GameEvent[]): void {
-  let outcome: "kept" | "salvaged" | "overflow" = filterAction(state.settings.lootFilter, item) === "keep" ? "kept" : "salvaged";
+  const action = filterAction(state.settings.lootFilter, item, () => improvesBuild(state, item));
+  let outcome: "kept" | "salvaged" | "overflow" = action === "keep" ? "kept" : "salvaged";
   if (outcome === "kept" && state.inventory.order.length >= INVENTORY_CAPACITY) {
     outcome = "overflow";
   }

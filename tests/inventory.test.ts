@@ -105,6 +105,36 @@ describe("unequip_slot and salvage_item", () => {
   });
 });
 
+describe("item locks", () => {
+  it("locked items cannot be salvaged until unlocked", () => {
+    const state = createInitialState(1);
+    const id = addItem(state, { baseId: "iron_band", itemLevel: 1, rarity: "normal", affixes: [] });
+    expect(dispatch(state, { type: "set_item_locked", itemId: id, locked: true })).toMatchObject({ ok: true });
+    expect(state.inventory.items[id]!.locked).toBe(true);
+    expectValid(state);
+    expect(dispatch(state, { type: "salvage_item", itemId: id })).toEqual({ ok: false, reason: "item_locked" });
+    dispatch(state, { type: "set_item_locked", itemId: id, locked: false });
+    expect("locked" in state.inventory.items[id]!).toBe(false);
+    expect(dispatch(state, { type: "salvage_item", itemId: id }).ok).toBe(true);
+    expect(dispatch(state, { type: "set_item_locked", itemId: "i999", locked: true })).toEqual({ ok: false, reason: "item_not_found" });
+  });
+
+  it("salvage_unlocked salvages every unlocked unequipped item and keeps the rest", () => {
+    const state = createInitialState(1);
+    const a = addItem(state, { baseId: "iron_band", itemLevel: 1, rarity: "magic", affixes: [] });
+    const b = addItem(state, { baseId: "iron_band", itemLevel: 1, rarity: "magic", affixes: [] });
+    const c = addItem(state, { baseId: "iron_band", itemLevel: 1, rarity: "magic", affixes: [] });
+    dispatch(state, { type: "set_item_locked", itemId: b, locked: true });
+    const weapon = state.character.equipment.weapon!;
+    const result = dispatch(state, { type: "salvage_unlocked" });
+    expect(result.ok && result.events.filter((e) => e.type === "item_salvaged").map((e) => e.type === "item_salvaged" && e.itemId)).toEqual([a, c]);
+    expect(state.inventory.order).toEqual([b]);
+    expect(state.inventory.items[weapon]).toBeDefined();
+    expect(state.inventory.currency.kindle_shard).toBe(2);
+    expectValid(state);
+  });
+});
+
 describe("set_loot_filter", () => {
   it("accepts valid rules and rejects invalid ones without changing the filter", () => {
     const state = createInitialState(1);
@@ -124,6 +154,8 @@ describe("property: any sequence of actions keeps the state consistent", () => {
       fc.record({ kind: fc.constant("equip" as const), pick: fc.nat(), slot: fc.option(fc.constantFrom(...EQUIP_SLOTS), { nil: undefined }) }),
       fc.record({ kind: fc.constant("unequip" as const), slot: fc.constantFrom(...EQUIP_SLOTS) }),
       fc.record({ kind: fc.constant("salvage" as const), pick: fc.nat() }),
+      fc.record({ kind: fc.constant("lock" as const), pick: fc.nat(), locked: fc.boolean() }),
+      fc.record({ kind: fc.constant("salvage_unlocked" as const) }),
       fc.record({ kind: fc.constant("loot" as const), ilvl: fc.integer({ min: 1, max: 45 }), rarity: fc.constantFrom("normal", "magic", "rare" as const) }),
       fc.record({ kind: fc.constant("craft" as const), pick: fc.nat(), currencyId: fc.constantFrom(...(Object.keys(CURRENCIES) as CurrencyId[])) }),
       fc.record({ kind: fc.constant("map" as const), tier: fc.integer({ min: 0, max: 3 }) }),
@@ -150,6 +182,14 @@ describe("property: any sequence of actions keeps the state consistent", () => {
               break;
             case "salvage":
               if (order.length > 0) playerAction = { type: "salvage_item", itemId: order[a.pick % order.length]! };
+              break;
+            case "lock": {
+              const ids = Object.keys(state.inventory.items);
+              playerAction = { type: "set_item_locked", itemId: ids[a.pick % ids.length]!, locked: a.locked };
+              break;
+            }
+            case "salvage_unlocked":
+              playerAction = { type: "salvage_unlocked" };
               break;
             case "craft": {
               const ids = Object.keys(state.inventory.items);

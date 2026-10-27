@@ -10,7 +10,7 @@ import { useCurrency, type CraftError } from "./crafting";
 import { createEncounter, encounterMonsterMods } from "./encounters";
 import type { EquipSlot, ItemId } from "./equipment";
 import { nextScheduledEvent, type GameEvent } from "./events";
-import { equipItem, salvageItem, unequipSlot, type InventoryError } from "./inventory";
+import { equipItem, salvageItem, salvageUnlocked, setItemLocked, unequipSlot, type InventoryError } from "./inventory";
 import { rollMonsterDrops } from "./loot";
 import { allocatePassive, resetPassives, type PassiveError } from "./passive-tree";
 import {
@@ -51,6 +51,10 @@ export type PlayerAction =
   | { type: "equip_item"; itemId: ItemId; slot?: EquipSlot }
   | { type: "unequip_slot"; slot: EquipSlot }
   | { type: "salvage_item"; itemId: ItemId }
+  /** Salvages every unequipped item that is not locked. */
+  | { type: "salvage_unlocked" }
+  /** Works on equipped and unequipped items. */
+  | { type: "set_item_locked"; itemId: ItemId; locked: boolean }
   /** Works on equipped and unequipped items. */
   | { type: "use_currency"; currencyId: CurrencyId; itemId: ItemId }
   | { type: "set_loot_filter"; rules: LootFilterRule[] }
@@ -305,6 +309,11 @@ export function dispatch(state: GameState, action: PlayerAction): ActionResult {
       return errorResult(unequipSlot(state, action.slot, events), events);
     case "salvage_item":
       return errorResult(salvageItem(state, action.itemId, events), events);
+    case "salvage_unlocked":
+      salvageUnlocked(state, events);
+      return { ok: true, events };
+    case "set_item_locked":
+      return errorResult(setItemLocked(state, action.itemId, action.locked), events);
     case "set_loot_filter":
       if (validateLootFilter(action.rules).length > 0) {
         return { ok: false, reason: "invalid_filter" };
