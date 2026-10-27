@@ -1,0 +1,107 @@
+:root {
+  --bg: #15171a;
+  --panel: #1e2125;
+  --border: #33373d;
+  --text: #d8dadd;
+  --muted: #8b9098;
+  --life: #b8433d;
+  --xp: #3f74b8;
+  --progress: #8a7a3a;
+  --monster: #6f4a8a;
+  --death: #e0675f;
+  --level: #6fbf73;
+  --drop: #d9b54a;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  padding: 16px;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+#app {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 16px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+@media (max-width: 720px) {
+  #app {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  padding: 12px;
+}
+
+h2,
+h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.muted,
+.stats {
+  color: var(--muted);
+  margin: 6px 0;
+}
+
+.bar {
+  position: relative;
+  height: 20px;
+  margin: 6px 0;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.bar-fill {
+  height: 100%;
+}
+
+.bar-label {
+  position: absolute;
+  inset: 0;
+  padding: 0 6px;
+  line-height: 20px;
+}
+
+.bar-xp .bar-fill { background: var(--xp); }
+.bar-life .bar-fill { background: var(--life); }
+.bar-progress .bar-fill { background: var(--progress); }
+.bar-monster .bar-fill { background: var(--monster); }
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font: inherit;
+}
+
+.log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.log li { padding: 1px 0; }
+.log-death { color: var(--death); }
+.log-level_up { color: var(--level); }
+.log-drop { color: var(--drop); }
+.log-combat { color: var(--muted); }
