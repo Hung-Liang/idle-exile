@@ -1,5 +1,6 @@
 import { INVENTORY_CAPACITY } from "../../data/balance";
 import { CURRENCIES, type CurrencyId } from "../../data/currencies";
+import { canApplyCurrency } from "../../game/crafting";
 import type { ActionResult, PlayerAction } from "../../game/engine";
 import { EQUIP_SLOTS, itemBase, RARITIES, slotsForClass, type EquipSlot, type ItemId, type Rarity } from "../../game/equipment";
 import { compareEquip, evaluateState, withEquipment } from "../../game/evaluate";
@@ -89,6 +90,17 @@ export function createInventoryPanel(dispatch: Dispatch): Panel {
       actions.append(button("Salvage", () => act({ type: "salvage_item", itemId })));
     }
     box.append(actions);
+
+    const crafting = el("div", "controls");
+    for (const id of Object.keys(CURRENCIES) as CurrencyId[]) {
+      const def = CURRENCIES[id];
+      const count = state.inventory.currency[id];
+      const reason = count < 1 ? `No ${def.name} left` : canApplyCurrency(item, id) ? undefined : `Not a valid target: ${def.description}`;
+      const b = button(`${def.name} (${count})`, () => act({ type: "use_currency", currencyId: id, itemId }), reason);
+      if (reason === undefined) b.title = def.description;
+      crafting.append(b);
+    }
+    box.append(el("h3", undefined, "Craft"), crafting);
 
     const monsterLevel = resolveActivity(state).monsterLevel;
     if (equippedIn === undefined) {

@@ -1,3 +1,4 @@
+import { MAP_MODIFIERS } from "../../data/map-modifiers";
 import { ZONES, type ZoneId } from "../../data/zones";
 import { monsterStats } from "../../game/combat";
 import type { ActionResult, PlayerAction } from "../../game/engine";
@@ -27,6 +28,7 @@ export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResu
   const zoneTitle = el("h2");
   const progress = bar("progress");
   const status = el("div", "muted");
+  const mapInfo = el("div", "stats");
   const monstersList = el("div", "monsters");
   const monsterBars: Bar[] = [];
 
@@ -37,7 +39,7 @@ export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResu
   const controls = el("div", "controls", el("label", undefined, "Zone ", zoneSelect), autoAdvance.root, autoRetreat.root);
 
   const logList = el("ol", "log");
-  const root = el("section", "panel", zoneTitle, progress.root, status, monstersList, controls, el("h3", undefined, "Combat log"), logList);
+  const root = el("section", "panel", zoneTitle, progress.root, status, mapInfo, monstersList, controls, el("h3", undefined, "Combat log"), logList);
 
   let lastLogKey = "";
   let lastZonesKey = "";
@@ -54,7 +56,8 @@ export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResu
       progress.set(cleared, resolved.requiredEncounters, `Progress ${cleared} / ${resolved.requiredEncounters}`);
 
       const encounter = state.encounter;
-      const bossDefeated = zoneId !== null && state.progression.zoneProgress[zoneId]?.bossDefeated === true;
+      const bossStatus =
+        zoneId === null ? "" : ` · Boss ${state.progression.zoneProgress[zoneId]?.bossDefeated === true ? "defeated" : "not defeated"}`;
       const phase =
         encounter === null
           ? "Preparing…"
@@ -65,7 +68,13 @@ export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResu
               : encounter.isBoss
                 ? "Boss fight!"
                 : `Encounter ${encounter.index + 1}`;
-      status.textContent = `${phase} · Boss ${bossDefeated ? "defeated" : "not defeated"} · Deaths in a row: ${state.progression.consecutiveDeaths} · Sim ${formatSimTime(state.simTimeMs)}`;
+      status.textContent = `${phase}${bossStatus} · Deaths in a row: ${state.progression.consecutiveDeaths} · Sim ${formatSimTime(state.simTimeMs)}`;
+
+      mapInfo.hidden = activity.kind !== "map";
+      if (activity.kind === "map") {
+        const mods = activity.modifiers.map((id) => `${MAP_MODIFIERS[id].name} (${MAP_MODIFIERS[id].description})`);
+        mapInfo.textContent = `Modifiers: ${mods.length === 0 ? "none" : mods.join(" · ")} — Item quantity +${resolved.itemQuantityPct}%, rarity +${resolved.itemRarityPct}%`;
+      }
 
       const monsters = encounter?.phase === "fighting" ? encounter.monsters : [];
       while (monsterBars.length < monsters.length) {
@@ -85,7 +94,12 @@ export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResu
       const zonesKey = state.progression.unlockedZones.join(",") + "|" + (zoneId ?? "");
       if (zonesKey !== lastZonesKey) {
         lastZonesKey = zonesKey;
+        // In a map, a placeholder keeps every zone selectable through the change event.
+        const placeholder = el("option", undefined, "— in a map —");
+        placeholder.disabled = true;
+        placeholder.selected = zoneId === null;
         zoneSelect.replaceChildren(
+          ...(zoneId === null ? [placeholder] : []),
           ...state.progression.unlockedZones.map((id) => {
             const option = el("option", undefined, ZONES[id].name);
             option.value = id;

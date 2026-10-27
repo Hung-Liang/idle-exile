@@ -13,6 +13,7 @@ import { createCharacterPanel } from "./ui/character-panel";
 import { createCombatPanel } from "./ui/combat-panel";
 import { button, el } from "./ui/dom";
 import { createInventoryPanel } from "./ui/inventory-panel";
+import { createMapPanel } from "./ui/map-panel";
 import { createOverlay } from "./ui/overlay";
 import { createSettingsPanel, type SaveControls } from "./ui/settings-panel";
 import { createSkillPanel } from "./ui/skill-panel";
@@ -139,10 +140,17 @@ const views = {
   combat: createCombatPanel(onAction),
   inventory: createInventoryPanel(onAction),
   skills: createSkillPanel(onAction),
+  maps: createMapPanel(onAction),
   settings: createSettingsPanel(saveControls),
 };
 type View = keyof typeof views;
-const VIEW_LABELS: Record<View, string> = { combat: "Combat", inventory: "Inventory", skills: "Skills", settings: "Settings" };
+const VIEW_LABELS: Record<View, string> = {
+  combat: "Combat",
+  inventory: "Inventory",
+  skills: "Skills",
+  maps: "Maps",
+  settings: "Settings",
+};
 let view: View = "combat";
 
 const navButtons = (Object.keys(views) as View[]).map((name) => {
