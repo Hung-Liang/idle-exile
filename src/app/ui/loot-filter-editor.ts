@@ -20,6 +20,7 @@ function describeRule(rule: LootFilterRule): string {
   if (rule.slots !== undefined) conditions.push(`slot ${rule.slots.join("/")}`);
   if (rule.minItemLevel !== undefined) conditions.push(`ilvl ≥ ${rule.minItemLevel}`);
   if (rule.hasStat !== undefined) conditions.push(`has ${rule.hasStat.join("/")}`);
+  if (rule.upgrade === true) conditions.push("upgrade");
   return `${conditions.length === 0 ? "any item" : conditions.join(", ")} → ${rule.action}`;
 }
 
@@ -49,12 +50,17 @@ export function lootFilterEditor(rules: readonly LootFilterRule[], set: (next: L
   ilvl.min = "0";
   ilvl.placeholder = "min ilvl";
   ilvl.className = "ilvl";
+  const upgrade = el("input");
+  upgrade.type = "checkbox";
+  const upgradeLabel = el("label", "toggle", upgrade, " upgrade only");
+  upgradeLabel.title = "Matches items that would improve DPS or EHP over the equipped item (standardized estimate)";
   const add = button("Add as first rule", () => {
     const rule: LootFilterRule = { action: action.value as LootFilterRule["action"] };
     if (rarity.value !== "") rule.minRarity = rarity.value as Rarity;
     if (slot.value !== "") rule.slots = [slot.value as EquipSlot];
     if (stat.value !== "") rule.hasStat = [stat.value as StatId];
     if (ilvl.value !== "") rule.minItemLevel = Number(ilvl.value);
+    if (upgrade.checked) rule.upgrade = true;
     set([rule, ...rules]);
   });
   const reset = button("Reset to default", () => set(defaultLootFilter()));
@@ -63,6 +69,6 @@ export function lootFilterEditor(rules: readonly LootFilterRule[], set: (next: L
     undefined,
     el("div", "muted", "First matching rule decides; unmatched items are kept."),
     list,
-    el("div", "controls", rarity, slot, stat, ilvl, action, add, reset),
+    el("div", "controls", rarity, slot, stat, ilvl, upgradeLabel, action, add, reset),
   );
 }

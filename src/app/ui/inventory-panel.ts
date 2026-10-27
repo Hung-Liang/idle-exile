@@ -3,7 +3,7 @@ import { CURRENCIES, type CurrencyId } from "../../data/currencies";
 import { canApplyCurrency } from "../../game/crafting";
 import type { ActionResult, PlayerAction } from "../../game/engine";
 import { EQUIP_SLOTS, itemBase, slotsForClass, type EquipSlot, type ItemId } from "../../game/equipment";
-import { compareEquip, evaluateState, withEquipment } from "../../game/evaluate";
+import { compareEquip, evaluateState, improvesBuild, withEquipment, type BuildEvaluation } from "../../game/evaluate";
 import type { GameState } from "../../game/state";
 import { resolveActivity } from "../../game/zones";
 import type { Panel } from "./character-panel";
@@ -31,9 +31,15 @@ export function createInventoryPanel(dispatch: Dispatch): Panel {
     rerender();
   }
 
-  function itemRow(state: GameState, itemId: ItemId, prefix: string): HTMLElement {
+  /** `current` is given for unequipped items, which are then marked when they would be an upgrade. */
+  function itemRow(state: GameState, itemId: ItemId, prefix: string, current?: BuildEvaluation): HTMLElement {
     const item = state.inventory.items[itemId]!;
-    const row = el("li", `item rarity-${item.rarity}${itemId === selected ? " selected" : ""}`, `${prefix}${itemTitle(item)}`);
+    const row = el("li", `item rarity-${item.rarity}${itemId === selected ? " selected" : ""}`, `${prefix}${item.locked === true ? "🔒 " : ""}${itemTitle(item)}`);
+    if (current !== undefined && improvesBuild(state, item, current)) {
+      const mark = el("span", "delta-up", " ▲");
+      mark.title = "Upgrade over the equipped item (standardized estimate)";
+      row.append(mark);
+    }
     row.addEventListener("click", () => {
       selected = itemId;
       rerender();
@@ -59,6 +65,8 @@ export function createInventoryPanel(dispatch: Dispatch): Panel {
     );
 
     const actions = el("div", "controls");
+    const locked = item.locked === true;
+    actions.append(button(locked ? "Unlock" : "Lock", () => act({ type: "set_item_locked", itemId, locked: !locked })));
     if (equippedIn !== undefined) {
       actions.append(button(`Unequip (${equippedIn})`, () => act({ type: "unequip_slot", slot: equippedIn })));
     } else {
@@ -66,7 +74,7 @@ export function createInventoryPanel(dispatch: Dispatch): Panel {
       for (const slot of slotsForClass(base.itemClass)) {
         actions.append(button(`Equip → ${slot}`, () => act({ type: "equip_item", itemId, slot }), tooLow));
       }
-      actions.append(button("Salvage", () => act({ type: "salvage_item", itemId })));
+      actions.append(button("Salvage", () => act({ type: "salvage_item", itemId }), locked ? "Locked items cannot be salvaged" : undefined));
     }
     box.append(actions);
 
@@ -117,7 +125,11 @@ export function createInventoryPanel(dispatch: Dispatch): Panel {
       const { inventory, character } = state;
       const key = JSON.stringify([
         inventory.order,
+        Object.keys(inventory.items).filter((id) => inventory.items[id]!.locked === true),
         character.equipment,
+        character.activeSkillId,
+        character.supportIds,
+        character.allocatedPassives,
         inventory.currency,
         character.level,
         selected,
@@ -137,7 +149,18 @@ export function createInventoryPanel(dispatch: Dispatch): Panel {
           return id === null ? el("li", "muted", `${slot}: —`) : itemRow(state, id, `${slot}: `);
         }),
       );
-      const items = el("ul", "items scroll", ...inventory.order.map((id) => itemRow(state, id, "")));
+      const current = evaluateState(state);
+      const items = el("ul", "items scroll", ...inventory.order.map((id) => itemRow(state, id, "", current)));
+      const unlocked = inventory.order.filter((id) => inventory.items[id]!.locked !== true).length;
+      const salvageAll = button(
+        `Salvage unlocked (${unlocked})`,
+        () => {
+          if (window.confirm(`Salvage ${unlocked} unlocked item${unlocked === 1 ? "" : "s"}? Equipped and locked items are kept.`)) {
+            act({ type: "salvage_unlocked" });
+          }
+        },
+        unlocked === 0 ? "No unlocked items" : undefined,
+      );
 
       root.replaceChildren(
         el("h2", undefined, `Inventory (${inventory.order.length} / ${INVENTORY_CAPACITY})`),
@@ -146,7 +169,7 @@ export function createInventoryPanel(dispatch: Dispatch): Panel {
         el(
           "div",
           "inventory-grid",
-          el("div", undefined, el("h3", undefined, "Equipment"), equipment, el("h3", undefined, "Items"), items),
+          el("div", undefined, el("h3", undefined, "Equipment"), equipment, el("h3", undefined, "Items"), el("div", "controls", salvageAll), items),
           el("div", undefined, detail(state)),
         ),
         el(
