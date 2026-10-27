@@ -2,15 +2,10 @@ import { INVENTORY_CAPACITY } from "../data/balance";
 import { itemBase, SLOT_ITEM_CLASS, slotsForClass, type EquipSlot, type ItemId } from "./equipment";
 import type { GameEvent } from "./events";
 import { describeItem, salvageYield } from "./loot";
-import { computeMaxLife } from "./stats";
+import { clampLifeToMax } from "./stats";
 import { appendLog, type GameState } from "./state";
 
 export type InventoryError = "item_not_found" | "invalid_slot" | "level_too_low" | "slot_empty" | "inventory_full";
-
-/** Equipping can lower max life; current life never exceeds it. Gains do not heal. */
-function clampLife(state: GameState): void {
-  state.character.life = Math.min(state.character.life, computeMaxLife(state));
-}
 
 /** The default slot for an item class: the first empty matching slot, otherwise the first one. */
 export function defaultSlot(state: GameState, itemId: ItemId): EquipSlot | null {
@@ -40,7 +35,7 @@ export function equipItem(state: GameState, itemId: ItemId, slot: EquipSlot | un
   } else {
     state.inventory.order[index] = replaced;
   }
-  clampLife(state);
+  clampLifeToMax(state);
   appendLog(state, "info", `Equipped ${describeItem(item)}.`);
   events.push({ type: "item_equipped", timeMs: state.simTimeMs, itemId, slot: target, replaced });
   return null;
@@ -52,7 +47,7 @@ export function unequipSlot(state: GameState, slot: EquipSlot): InventoryError |
   if (state.inventory.order.length >= INVENTORY_CAPACITY) return "inventory_full";
   state.character.equipment[slot] = null;
   state.inventory.order.push(itemId);
-  clampLife(state);
+  clampLifeToMax(state);
   return null;
 }
 

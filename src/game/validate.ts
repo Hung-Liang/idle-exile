@@ -4,7 +4,7 @@ import { CURRENCIES } from "../data/currencies";
 import { AFFIX_CATEGORY_LIMITS } from "../data/drop-tables";
 import { ITEM_BASES } from "../data/item-bases";
 import { MAP_MODIFIERS } from "../data/map-modifiers";
-import { PASSIVE_EDGES, PASSIVE_NODES, PASSIVE_ROOT } from "../data/passive-tree";
+import { PASSIVE_NODES, PASSIVE_ROOT } from "../data/passive-tree";
 import { SKILLS } from "../data/skills";
 import { STACKS } from "../data/stacks";
 import { SUPPORTS } from "../data/supports";
@@ -12,6 +12,7 @@ import { ZONES } from "../data/zones";
 import { EQUIP_SLOTS, RARITIES, SLOT_ITEM_CLASS } from "./equipment";
 import { CURRENT_SCHEMA_VERSION } from "./migrations";
 import { STAT_IDS } from "./modifiers";
+import { PASSIVE_ADJACENCY } from "./passive-tree";
 import { RNG_STREAMS } from "./random";
 import { LOG_KINDS, supportSlotCount, type GameState } from "./state";
 
@@ -87,18 +88,9 @@ class Checker {
   }
 }
 
-function buildPassiveAdjacency(): Map<string, string[]> {
-  const adjacency = new Map<string, string[]>();
-  for (const [a, b] of PASSIVE_EDGES) {
-    adjacency.set(a, [...(adjacency.get(a) ?? []), b]);
-    adjacency.set(b, [...(adjacency.get(b) ?? []), a]);
-  }
-  return adjacency;
-}
-
 /** Every allocated node must be connected to the root through allocated nodes. */
 function passivesConnected(allocated: readonly string[]): boolean {
-  const adjacency = buildPassiveAdjacency();
+  const adjacency = PASSIVE_ADJACENCY as ReadonlyMap<string, readonly string[]>;
   const allocatedSet = new Set(allocated);
   const visited = new Set<string>([PASSIVE_ROOT]);
   const queue: string[] = [PASSIVE_ROOT];

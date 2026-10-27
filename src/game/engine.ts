@@ -1,3 +1,6 @@
+import type { PassiveNodeId } from "../data/passive-tree";
+import type { SkillId } from "../data/skills";
+import type { SupportId } from "../data/supports";
 import { DEATHS_BEFORE_RETREAT, RESPAWN_MS, TRANSITION_LIFE_RECOVERY_PCT, TRANSITION_MS } from "../data/balance";
 import { STACKS, type StackId } from "../data/stacks";
 import type { ZoneId } from "../data/zones";
@@ -7,6 +10,7 @@ import type { EquipSlot, ItemId } from "./equipment";
 import { nextScheduledEvent, type GameEvent } from "./events";
 import { equipItem, salvageItem, unequipSlot, type InventoryError } from "./inventory";
 import { rollMonsterDrops } from "./loot";
+import { allocatePassive, resetPassives, type PassiveError } from "./passive-tree";
 import {
   grantXp,
   recordBossDefeated,
@@ -15,6 +19,7 @@ import {
   travelToZone,
   xpMultiplier,
 } from "./progression";
+import { setActiveSkill, setSupport, type SkillError } from "./skills";
 import { attackIntervalMs, collectBuild, computeDefenses, type DefensiveStats, type PlayerBuild } from "./stats";
 import { appendLog, type EncounterRuntime, type GameState, type LootFilterRule } from "./state";
 import { validateLootFilter } from "./validate";
@@ -32,9 +37,14 @@ export type PlayerAction =
   | { type: "equip_item"; itemId: ItemId; slot?: EquipSlot }
   | { type: "unequip_slot"; slot: EquipSlot }
   | { type: "salvage_item"; itemId: ItemId }
-  | { type: "set_loot_filter"; rules: LootFilterRule[] };
+  | { type: "set_loot_filter"; rules: LootFilterRule[] }
+  | { type: "set_active_skill"; skillId: SkillId }
+  /** `supportId: null` empties the slot. */
+  | { type: "set_support"; slot: number; supportId: SupportId | null }
+  | { type: "allocate_passive"; nodeId: PassiveNodeId }
+  | { type: "reset_passives" };
 
-export type ActionError = "zone_locked" | "invalid_filter" | InventoryError;
+export type ActionError = "zone_locked" | "invalid_filter" | InventoryError | SkillError | PassiveError;
 
 export type ActionResult = { ok: true; events: GameEvent[] } | { ok: false; reason: ActionError };
 
@@ -233,7 +243,7 @@ export function advance(state: GameState, ms: number): AdvanceResult {
   return { events: sim.events };
 }
 
-function inventoryResult(error: InventoryError | null, events: GameEvent[]): ActionResult {
+function errorResult(error: InventoryError | SkillError | PassiveError | null, events: GameEvent[]): ActionResult {
   return error === null ? { ok: true, events } : { ok: false, reason: error };
 }
 
@@ -250,16 +260,25 @@ export function dispatch(state: GameState, action: PlayerAction): ActionResult {
     case "travel_to_zone":
       return travelToZone(state, action.zoneId, events) ? { ok: true, events } : { ok: false, reason: "zone_locked" };
     case "equip_item":
-      return inventoryResult(equipItem(state, action.itemId, action.slot, events), events);
+      return errorResult(equipItem(state, action.itemId, action.slot, events), events);
     case "unequip_slot":
-      return inventoryResult(unequipSlot(state, action.slot), events);
+      return errorResult(unequipSlot(state, action.slot), events);
     case "salvage_item":
-      return inventoryResult(salvageItem(state, action.itemId, events), events);
+      return errorResult(salvageItem(state, action.itemId, events), events);
     case "set_loot_filter":
       if (validateLootFilter(action.rules).length > 0) {
         return { ok: false, reason: "invalid_filter" };
       }
       state.settings.lootFilter = structuredClone(action.rules);
+      return { ok: true, events };
+    case "set_active_skill":
+      return errorResult(setActiveSkill(state, action.skillId, events), events);
+    case "set_support":
+      return errorResult(setSupport(state, action.slot, action.supportId, events), events);
+    case "allocate_passive":
+      return errorResult(allocatePassive(state, action.nodeId, events), events);
+    case "reset_passives":
+      resetPassives(state, events);
       return { ok: true, events };
   }
 }

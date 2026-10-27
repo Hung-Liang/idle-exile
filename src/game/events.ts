@@ -1,4 +1,7 @@
 import type { CurrencyId } from "../data/currencies";
+import type { PassiveNodeId } from "../data/passive-tree";
+import type { SkillId } from "../data/skills";
+import type { SupportId } from "../data/supports";
 import type { ZoneId } from "../data/zones";
 import type { EquipSlot, ItemId, Rarity } from "./equipment";
 import type { Activity, EncounterRuntime } from "./state";
@@ -15,7 +18,11 @@ export type GameEvent =
   | { type: "item_dropped"; timeMs: number; itemId: ItemId; rarity: Rarity; outcome: "kept" | "salvaged" | "overflow" }
   | { type: "currency_gained"; timeMs: number; currencyId: CurrencyId; amount: number; source: "drop" | "salvage" }
   | { type: "item_equipped"; timeMs: number; itemId: ItemId; slot: EquipSlot; replaced: ItemId | null }
-  | { type: "item_salvaged"; timeMs: number; itemId: ItemId };
+  | { type: "item_salvaged"; timeMs: number; itemId: ItemId }
+  | { type: "skill_changed"; timeMs: number; skillId: SkillId }
+  | { type: "support_changed"; timeMs: number; slot: number; supportId: SupportId | null; removed: SupportId | null }
+  | { type: "passive_allocated"; timeMs: number; nodeId: PassiveNodeId }
+  | { type: "passives_reset"; timeMs: number };
 
 export type ScheduledEvent =
   | { kind: "phase_end"; time: number }

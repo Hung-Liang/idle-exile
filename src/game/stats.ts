@@ -152,3 +152,8 @@ export function computeDefenses(build: PlayerBuild): DefensiveStats {
 export function computeMaxLife(state: GameState): number {
   return computeDefenses(collectBuild(state)).maxLife;
 }
+
+/** Build changes can lower max life; current life never exceeds it. Gains do not heal. */
+export function clampLifeToMax(state: GameState): void {
+  state.character.life = Math.min(state.character.life, computeMaxLife(state));
+}

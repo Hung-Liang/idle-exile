@@ -102,6 +102,13 @@ export function withEquipment(state: GameState, slot: EquipSlot, itemId: ItemId 
   return { ...state, character: { ...state.character, equipment } };
 }
 
+type BuildChoice = Pick<GameState["character"], "activeSkillId" | "supportIds" | "allocatedPassives">;
+
+/** A read-only view of `state` with the given skill, supports or passives; the original is not modified. */
+export function withBuild(state: GameState, patch: Partial<BuildChoice>): GameState {
+  return { ...state, character: { ...state.character, ...patch } };
+}
+
 export interface EquipComparison {
   current: BuildEvaluation;
   candidate: BuildEvaluation;
