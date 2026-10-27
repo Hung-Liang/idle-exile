@@ -1,4 +1,4 @@
-import { BASE_LIFE, SUPPORT_SLOT_LEVELS } from "../data/balance";
+import { BASE_LIFE, LOG_CAPACITY, SUPPORT_SLOT_LEVELS } from "../data/balance";
 import type { CurrencyId } from "../data/currencies";
 import { CURRENCIES } from "../data/currencies";
 import { STARTING_WEAPON_BASE } from "../data/item-bases";
@@ -179,4 +179,12 @@ export function createInitialState(seed: number): GameState {
     },
     log: [],
   };
+}
+
+/** Appends to the log ring buffer, dropping the oldest entries beyond LOG_CAPACITY. */
+export function appendLog(state: GameState, kind: LogKind, text: string): void {
+  state.log.push({ timeMs: state.simTimeMs, kind, text });
+  if (state.log.length > LOG_CAPACITY) {
+    state.log.splice(0, state.log.length - LOG_CAPACITY);
+  }
 }

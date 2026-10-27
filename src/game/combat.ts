@@ -1,0 +1,210 @@
+import {
+  ARMOR_DR_CAP,
+  ARMOR_RAW_FACTOR,
+  MAX_ATTACKS_PER_SECOND,
+  monsterBaseArmor,
+  monsterBaseDamage,
+  monsterBaseLife,
+  monsterBaseXp,
+  MONSTER_DAMAGE_VARIANCE,
+  RESISTANCE_DEFAULT_MAX,
+  RESISTANCE_MIN,
+} from "../data/balance";
+import { getMonsterDefinition } from "../data/monsters";
+import { aggregate, DAMAGE_TYPES, type AggregateContext, type DamageType } from "./modifiers";
+import { nextChance, nextFloat, type RngState } from "./random";
+import { critChance, critMultiplier, damageTags, type PlayerBuild, type Stacks } from "./stats";
+
+export type DamagePortions = Record<DamageType, number>;
+
+function emptyPortions(): DamagePortions {
+  return { physical: 0, fire: 0, cold: 0, lightning: 0, chaos: 0 };
+}
+
+export interface MonsterStats {
+  name: string;
+  maxLife: number;
+  /** Mean damage per hit, before the ±variance roll. */
+  damagePerHit: number;
+  damageSplit: Partial<Record<DamageType, number>>;
+  attackIntervalMs: number;
+  armor: number;
+  resistances: Partial<Record<DamageType, number>>;
+  /** Before the level-difference penalty. */
+  xp: number;
+}
+
+export function monsterStats(defId: string, level: number): MonsterStats {
+  const def = getMonsterDefinition(defId);
+  const aps = Math.min(MAX_ATTACKS_PER_SECOND, def.attacksPerSecond);
+  return {
+    name: def.name,
+    maxLife: Math.max(1, Math.round(monsterBaseLife(level) * def.lifeMult)),
+    damagePerHit: monsterBaseDamage(level) * def.damageMult,
+    damageSplit: def.damageSplit,
+    attackIntervalMs: Math.round(1000 / aps),
+    armor: monsterBaseArmor(level) * def.armorMult,
+    resistances: def.resistances,
+    xp: Math.round(monsterBaseXp(level) * def.xpMult),
+  };
+}
+
+export interface Defender {
+  armor: number;
+  /** Raw resistance per type; missing = 0. */
+  resistances: Partial<Record<DamageType, number>>;
+  /** Missing = the default maximum. */
+  resistanceMax?: Partial<Record<DamageType, number>>;
+}
+
+/** `clamp(res − pen, min, max)`; penetration can only lower the result. */
+export function effectiveResistance(res: number, penetration: number, max: number): number {
+  return Math.min(max, Math.max(RESISTANCE_MIN, res - Math.max(0, penetration)));
+}
+
+/** Damage taken by one portion after armor or resistance (plan §6.3). Not floored. */
+export function mitigatePortion(type: DamageType, raw: number, defender: Defender, penetration: number): number {
+  if (raw <= 0) {
+    return 0;
+  }
+  if (type === "physical") {
+    const dr = defender.armor > 0 ? Math.min(ARMOR_DR_CAP, defender.armor / (defender.armor + ARMOR_RAW_FACTOR * raw)) : 0;
+    return raw * (1 - dr);
+  }
+  const res = effectiveResistance(
+    defender.resistances[type] ?? 0,
+    penetration,
+    defender.resistanceMax?.[type] ?? RESISTANCE_DEFAULT_MAX,
+  );
+  return raw * (1 - res / 100);
+}
+
+/** Life values are integers; every landed hit deals at least 1. */
+export function finalDamage(sum: number): number {
+  return Math.max(1, Math.floor(sum));
+}
+
+/** The per-attack part of the hit pipeline: steps 1–5 and 7 of plan §6.2. */
+export interface AttackRoll {
+  /** Post-conversion, post-effectiveness damage per type, before increased/more and crit. */
+  portions: DamagePortions;
+  crit: boolean;
+  /** Percent. */
+  critMultiplier: number;
+}
+
+/** Consumes exactly two `combat` draws: the damage roll, then the crit roll. */
+export function rollAttack(build: PlayerBuild, stacks: Stacks, rng: RngState): AttackRoll {
+  const { skill, mods } = build;
+  const typed = (type: DamageType): AggregateContext => ({ tags: damageTags(skill, type), damageType: type, stacks });
+
+  // 1. Base: weapon (local-adjusted) physical plus global added damage per type.
+  const ranges = {} as Record<DamageType, [number, number]>;
+  for (const type of DAMAGE_TYPES) {
+    const [addMin, addMax] = aggregate(mods, "added_damage", typed(type)).flatRange;
+    const base = type === "physical" ? build.weapon.physical : [0, 0];
+    ranges[type] = [base[0]! + addMin, base[1]! + addMax];
+  }
+
+  // 2. Roll: one shared draw for every type.
+  const t = nextFloat(rng);
+  const portions = emptyPortions();
+  for (const type of DAMAGE_TYPES) {
+    const [min, max] = ranges[type];
+    portions[type] = min + t * (max - min);
+  }
+
+  // 3. Conversion: physical → other types, total capped at 100%.
+  const conversion = emptyPortions();
+  let totalConversion = 0;
+  for (const type of DAMAGE_TYPES) {
+    if (type !== "physical") {
+      conversion[type] = Math.max(0, aggregate(mods, "conversion", typed(type)).flat);
+      totalConversion += conversion[type];
+    }
+  }
+  if (totalConversion > 0) {
+    const scale = totalConversion > 100 ? 100 / totalConversion : 1;
+    const physical = portions.physical;
+    for (const type of DAMAGE_TYPES) {
+      if (type !== "physical") {
+        const moved = (physical * conversion[type] * scale) / 100;
+        portions[type] += moved;
+        portions.physical -= moved;
+      }
+    }
+    portions.physical = Math.max(0, portions.physical);
+  }
+
+  // 4. Gain as extra, from post-conversion physical.
+  const physical = portions.physical;
+  for (const type of DAMAGE_TYPES) {
+    if (type !== "physical") {
+      portions[type] += (physical * Math.max(0, aggregate(mods, "gain_as_extra", typed(type)).flat)) / 100;
+    }
+  }
+
+  // 5. Skill effectiveness.
+  for (const type of DAMAGE_TYPES) {
+    portions[type] *= skill.effectiveness;
+  }
+
+  // 7. Crit: one roll per attack, drawn before any per-target work.
+  const crit = nextChance(rng, critChance(build, stacks) / 100);
+
+  return { portions, crit, critMultiplier: critMultiplier(build, stacks) };
+}
+
+export interface HitTarget extends Defender {
+  /** Target's life percentage before this hit. */
+  lifePct: number;
+}
+
+/** Per-target part of the pipeline: steps 6 and 8 of plan §6.2. Returns the final integer damage. */
+export function resolveHit(
+  build: PlayerBuild,
+  roll: AttackRoll,
+  stacks: Stacks,
+  target: HitTarget,
+  chained: boolean,
+): number {
+  const { skill, mods } = build;
+  let sum = 0;
+  for (const type of DAMAGE_TYPES) {
+    let value = roll.portions[type];
+    if (value <= 0) {
+      continue;
+    }
+    const ctx: AggregateContext = { tags: damageTags(skill, type), damageType: type, enemyLifePct: target.lifePct, stacks };
+    const scaling = aggregate(mods, "damage", ctx);
+    value *= (1 + scaling.increased / 100) * scaling.more;
+    if (roll.crit) {
+      value *= roll.critMultiplier / 100;
+    }
+    if (chained && skill.chain !== undefined) {
+      value *= 1 + skill.chain.chainedHitMore / 100;
+    }
+    const penetration = aggregate(mods, "penetration", ctx).flat;
+    sum += mitigatePortion(type, value, target, penetration);
+  }
+  return finalDamage(sum);
+}
+
+/** Consumes exactly one `combat` draw (the ±variance roll). Returns raw damage per type. */
+export function rollMonsterHit(stats: MonsterStats, rng: RngState): DamagePortions {
+  const factor = 1 + (2 * nextFloat(rng) - 1) * MONSTER_DAMAGE_VARIANCE;
+  const total = stats.damagePerHit * factor;
+  const portions = emptyPortions();
+  for (const type of DAMAGE_TYPES) {
+    portions[type] = total * (stats.damageSplit[type] ?? 0);
+  }
+  return portions;
+}
+
+export function mitigateHit(portions: DamagePortions, defender: Defender): number {
+  let sum = 0;
+  for (const type of DAMAGE_TYPES) {
+    sum += mitigatePortion(type, portions[type], defender, 0);
+  }
+  return finalDamage(sum);
+}

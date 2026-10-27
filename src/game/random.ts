@@ -109,3 +109,15 @@ export function weightedIndex(state: RngState, weights: readonly number[]): numb
   }
   throw new Error("unreachable");
 }
+
+export interface WeightedEntry<T> {
+  id: T;
+  weight: number;
+}
+
+export type WeightedList<T> = readonly WeightedEntry<T>[];
+
+/** Picks an entry proportionally to its weight. Always consumes exactly one draw. */
+export function pickWeighted<T>(state: RngState, list: WeightedList<T>): T {
+  return list[weightedIndex(state, list.map((e) => e.weight))]!.id;
+}

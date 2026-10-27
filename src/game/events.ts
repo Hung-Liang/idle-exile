@@ -1,0 +1,37 @@
+import type { ZoneId } from "../data/zones";
+import type { Activity, EncounterRuntime } from "./state";
+
+/** Emitted by `advance()` / `dispatch()` for the UI, log and tools. Never persisted. */
+export type GameEvent =
+  | { type: "encounter_started"; timeMs: number; index: number; isBoss: boolean }
+  | { type: "monster_killed"; timeMs: number; defId: string; isBoss: boolean; xp: number }
+  | { type: "encounter_cleared"; timeMs: number; index: number; isBoss: boolean }
+  | { type: "player_died"; timeMs: number }
+  | { type: "level_up"; timeMs: number; level: number }
+  | { type: "zone_unlocked"; timeMs: number; zoneId: ZoneId }
+  | { type: "activity_changed"; timeMs: number; activity: Activity };
+
+export type ScheduledEvent =
+  | { kind: "phase_end"; time: number }
+  | { kind: "player_attack"; time: number }
+  | { kind: "monster_attack"; time: number; monsterIndex: number };
+
+/**
+ * Selects the earliest currently valid event, recomputed from state every time (plan §4.1).
+ * Ties: encounter start / respawn, then the player attack, then monsters in ascending index.
+ * Phase-end events only exist outside `fighting` and attacks only inside it, so the first
+ * tie-break rule never competes with the others.
+ */
+export function nextScheduledEvent(encounter: EncounterRuntime): ScheduledEvent | null {
+  if (encounter.phase !== "fighting") {
+    return { kind: "phase_end", time: encounter.phaseEndsAt };
+  }
+  let best: ScheduledEvent = { kind: "player_attack", time: encounter.player.nextAttackAt };
+  encounter.monsters.forEach((monster, monsterIndex) => {
+    // Strictly earlier only: equal times keep the player or the lower monster index.
+    if (monster.alive && monster.nextAttackAt < best.time) {
+      best = { kind: "monster_attack", time: monster.nextAttackAt, monsterIndex };
+    }
+  });
+  return best;
+}
