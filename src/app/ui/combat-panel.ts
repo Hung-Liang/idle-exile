@@ -5,7 +5,7 @@ import type { ActionResult, PlayerAction } from "../../game/engine";
 import type { GameState } from "../../game/state";
 import { resolveActivity } from "../../game/zones";
 import type { Panel } from "./character-panel";
-import { bar, el, type Bar } from "./dom";
+import { bar, button, el, type Bar } from "./dom";
 
 const VISIBLE_LOG_ENTRIES = 50;
 
@@ -38,8 +38,29 @@ export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResu
   const autoRetreat = checkbox("Auto-retreat", (value) => dispatch({ type: "set_auto_retreat", value }));
   const controls = el("div", "controls", el("label", undefined, "Zone ", zoneSelect), autoAdvance.root, autoRetreat.root);
 
+  // Auto-advance stays off after a retreat until the player turns it back on (plan §6.6).
+  const paused = el(
+    "div",
+    "notice-inline",
+    "Auto-advance is off: the character keeps farming here. Once resumed, it moves on after the next boss kill.",
+    " ",
+    button("Resume auto-advance", () => dispatch({ type: "set_auto_advance", value: true })),
+  );
+
   const logList = el("ol", "log");
-  const root = el("section", "panel", zoneTitle, progress.root, status, mapInfo, monstersList, controls, el("h3", undefined, "Combat log"), logList);
+  const root = el(
+    "section",
+    "panel",
+    zoneTitle,
+    progress.root,
+    status,
+    paused,
+    mapInfo,
+    monstersList,
+    controls,
+    el("h3", undefined, "Combat log"),
+    logList,
+  );
 
   let lastLogKey = "";
   let lastZonesKey = "";
@@ -109,6 +130,8 @@ export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResu
         );
       }
       autoAdvance.input.checked = state.settings.autoAdvance;
+      paused.hidden = state.settings.autoAdvance;
+
       autoRetreat.input.checked = state.settings.autoRetreat;
 
       const visible = state.log.slice(-VISIBLE_LOG_ENTRIES).reverse();

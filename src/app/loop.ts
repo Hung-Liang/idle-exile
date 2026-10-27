@@ -17,12 +17,14 @@ export interface OnlineLoop {
 
 /**
  * Online driver (plan §4.4): the only code that turns wall-clock deltas into `advance()` calls.
- * `perfNow` is injectable for tests.
+ * `perfNow` is injectable for tests. If a tick throws, the loop stops and `onError` receives the
+ * error (without it, the error propagates), so a broken state is not simulated further.
  */
 export function createOnlineLoop(
   state: GameState,
   onTick: (events: GameEvent[]) => void,
   perfNow: () => number = () => performance.now(),
+  onError?: (error: unknown) => void,
 ): OnlineLoop {
   let timer: ReturnType<typeof setInterval> | null = null;
   let lastTickPerf = 0;
@@ -39,6 +41,21 @@ export function createOnlineLoop(
     return advance(state, ms).events;
   }
 
+  function stop(): void {
+    if (timer !== null) clearInterval(timer);
+    timer = null;
+  }
+
+  function tick(): void {
+    try {
+      onTick(flush());
+    } catch (error) {
+      if (onError === undefined) throw error;
+      stop();
+      onError(error);
+    }
+  }
+
   return {
     get running() {
       return timer !== null;
@@ -47,12 +64,9 @@ export function createOnlineLoop(
       if (timer !== null) return;
       lastTickPerf = perfNow();
       carry = 0;
-      timer = setInterval(() => onTick(flush()), TICK_MS);
+      timer = setInterval(tick, TICK_MS);
     },
-    stop() {
-      if (timer !== null) clearInterval(timer);
-      timer = null;
-    },
+    stop,
     flush,
   };
 }

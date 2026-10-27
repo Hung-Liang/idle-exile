@@ -1,6 +1,9 @@
+import type { ActionResult, PlayerAction } from "../../game/engine";
 import { REPLACED_KEY } from "../../game/save";
+import type { LootFilterRule } from "../../game/state";
 import type { Panel } from "./character-panel";
 import { button, el } from "./dom";
+import { lootFilterEditor } from "./loot-filter-editor";
 
 export const RESET_CONFIRMATION = "RESET";
 
@@ -13,8 +16,34 @@ export interface SaveControls {
   reset(): void;
 }
 
-/** Plan §13.5 save management: export, import, and reset. */
-export function createSettingsPanel(controls: SaveControls): Panel {
+function toggle(label: string, hint: string, onChange: (checked: boolean) => void): { root: HTMLElement; input: HTMLInputElement } {
+  const input = el("input");
+  input.type = "checkbox";
+  input.addEventListener("change", () => onChange(input.checked));
+  return { root: el("div", undefined, el("label", "toggle", input, ` ${label}`), el("div", "muted", hint)), input };
+}
+
+/** Plan §13.5: auto-advance, auto-retreat, loot filter editor, export/import, and reset. */
+export function createSettingsPanel(controls: SaveControls, dispatch: (action: PlayerAction) => ActionResult): Panel {
+  const autoAdvance = toggle(
+    "Auto-advance",
+    "Move on to the next zone or map tier after each boss kill. A retreat pauses it.",
+    (value) => dispatch({ type: "set_auto_advance", value }),
+  );
+  const autoRetreat = toggle(
+    "Auto-retreat",
+    "After 3 deaths in a row, step back to the previous zone or map tier.",
+    (value) => dispatch({ type: "set_auto_retreat", value }),
+  );
+
+  const filterRoot = el("div");
+  const filterError = el("div", "error");
+  let lastFilterKey = "";
+  const setFilter = (rules: LootFilterRule[]) => {
+    const result = dispatch({ type: "set_loot_filter", rules });
+    filterError.textContent = result.ok ? "" : `Rejected: ${result.reason.replaceAll("_", " ")}.`;
+  };
+
   const exportBox = el("textarea", "save-text");
   exportBox.readOnly = true;
   exportBox.rows = 4;
@@ -55,6 +84,13 @@ export function createSettingsPanel(controls: SaveControls): Panel {
   const root = el(
     "section",
     "panel",
+    el("h2", undefined, "Settings"),
+    el("h3", undefined, "Gameplay"),
+    autoAdvance.root,
+    autoRetreat.root,
+    el("h3", undefined, "Loot filter"),
+    filterRoot,
+    filterError,
     el("h2", undefined, "Save"),
     el("h3", undefined, "Export"),
     exportBox,
@@ -69,5 +105,16 @@ export function createSettingsPanel(controls: SaveControls): Panel {
     el("div", "controls", resetInput, resetButton),
   );
 
-  return { root, render() {} };
+  return {
+    root,
+    render(state) {
+      autoAdvance.input.checked = state.settings.autoAdvance;
+      autoRetreat.input.checked = state.settings.autoRetreat;
+      const filterKey = JSON.stringify(state.settings.lootFilter);
+      if (filterKey !== lastFilterKey) {
+        lastFilterKey = filterKey;
+        filterRoot.replaceChildren(lootFilterEditor(state.settings.lootFilter, setFilter));
+      }
+    },
+  };
 }

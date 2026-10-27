@@ -123,6 +123,20 @@ describe("writeSave", () => {
     expect(result.ok).toBe(false);
     expect(storage.data).toEqual(snapshot);
   });
+
+  it("reports a failing storage write instead of throwing, keeping the previous save", () => {
+    const storage = new MemoryStorage();
+    writeSave(storage, createInitialState(1), times);
+    const previous = storage.getItem(SAVE_KEY);
+    const setItem = storage.setItem.bind(storage);
+    storage.setItem = (key, value) => {
+      if (key === SAVE_KEY) throw new Error("quota exceeded");
+      setItem(key, value);
+    };
+    const result = writeSave(storage, createInitialState(2), times);
+    expect(result).toEqual({ ok: false, errors: ["storage write failed: quota exceeded"] });
+    expect(storage.getItem(SAVE_KEY)).toBe(previous);
+  });
 });
 
 describe("loadSave", () => {

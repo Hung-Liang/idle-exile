@@ -110,11 +110,17 @@ export function writeSave(storage: KeyValueStorage, state: GameState, times: Sav
   if (!check.ok) {
     return { ok: false, errors: [check.error] };
   }
-  const previous = storage.getItem(SAVE_KEY);
-  if (previous !== null) {
-    storage.setItem(BACKUP_KEY, previous);
+  // Storage can throw (quota exceeded, storage disabled); report it instead of crashing the caller.
+  // The backup is written first, so a failed primary write leaves the previous save intact.
+  try {
+    const previous = storage.getItem(SAVE_KEY);
+    if (previous !== null) {
+      storage.setItem(BACKUP_KEY, previous);
+    }
+    storage.setItem(SAVE_KEY, text);
+  } catch (e) {
+    return { ok: false, errors: [`storage write failed: ${(e as Error).message}`] };
   }
-  storage.setItem(SAVE_KEY, text);
   return { ok: true };
 }
 
@@ -123,10 +129,19 @@ export function writeSave(storage: KeyValueStorage, state: GameState, times: Sav
  * REPLACED_KEY: the backup alone would be rotated away by the very next save.
  */
 export function replaceSave(storage: KeyValueStorage, state: GameState, times: SaveTimes): WriteResult {
-  const previous = storage.getItem(SAVE_KEY);
+  let previous: string | null;
+  try {
+    previous = storage.getItem(SAVE_KEY);
+  } catch (e) {
+    return { ok: false, errors: [`storage read failed: ${(e as Error).message}`] };
+  }
   const result = writeSave(storage, state, times);
   if (result.ok && previous !== null) {
-    storage.setItem(REPLACED_KEY, previous);
+    try {
+      storage.setItem(REPLACED_KEY, previous);
+    } catch (e) {
+      return { ok: false, errors: [`the new save was written, but keeping the replaced one failed: ${(e as Error).message}`] };
+    }
   }
   return result;
 }

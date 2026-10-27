@@ -37,8 +37,9 @@ if (root === null) {
  * - running:  the online loop owns time accounting
  * - paused:   page hidden; the hide-time save is authoritative until settlement on return
  * - stopped:  the save was replaced (import/reset) and the page is reloading
+ * - crashed:  the simulation threw; nothing runs or saves, so the last good save is kept
  */
-type Phase = "starting" | "blocked" | "settling" | "running" | "paused" | "stopped";
+type Phase = "starting" | "blocked" | "settling" | "running" | "paused" | "stopped" | "crashed";
 let phase: Phase = "starting";
 
 // Assigned by boot() before anything renders or simulates.
@@ -50,6 +51,8 @@ let autosaveTimer: ReturnType<typeof setInterval> | null = null;
 let offlineRun: OfflineRun | null = null;
 /** Bumped whenever the session is (re)booted or lost, so stale async settlements are ignored. */
 let generation = 0;
+/** True while saves keep failing, so the notice and log entry are not repeated every tick. */
+let saveFailing = false;
 
 // --- Persistence ---
 
@@ -60,9 +63,15 @@ function persist(): void {
   const result = flushAndSave(loop, localStorage, state, now);
   if (result.ok) {
     lastActiveAt = now;
+    if (saveFailing) {
+      saveFailing = false;
+      hideNotice();
+    }
   } else {
     console.error(`save failed: ${result.errors.join("; ")}`);
-    appendLog(state, "error", "Saving failed; see the browser console for details.");
+    if (!saveFailing) appendLog(state, "error", "Saving failed; see the browser console for details.");
+    saveFailing = true;
+    showNotice(`Saving failed (${result.errors.join("; ")}). Progress since the last successful save may be lost; export the save from Settings to keep a copy.`);
   }
 }
 
@@ -71,6 +80,8 @@ function writeSettled(t0: number): void {
   if (!result.ok) {
     console.error(`save after settlement failed: ${result.errors.join("; ")}`);
     appendLog(state, "error", "Saving after offline progress failed; see the browser console for details.");
+    saveFailing = true;
+    showNotice(`Saving failed (${result.errors.join("; ")}). Export the save from Settings to keep a copy.`);
   }
 }
 
@@ -141,7 +152,7 @@ const views = {
   inventory: createInventoryPanel(onAction),
   skills: createSkillPanel(onAction),
   maps: createMapPanel(onAction),
-  settings: createSettingsPanel(saveControls),
+  settings: createSettingsPanel(saveControls, onAction),
 };
 type View = keyof typeof views;
 const VIEW_LABELS: Record<View, string> = {
@@ -171,8 +182,18 @@ const shell = [notice, nav, characterPanel.root, viewRoot];
 for (const node of shell) node.hidden = true;
 root.replaceChildren(...shell, overlay.root);
 
+function showNotice(text: string): void {
+  notice.textContent = text;
+  notice.hidden = false;
+}
+
+function hideNotice(): void {
+  notice.textContent = "";
+  notice.hidden = true;
+}
+
 function render(): void {
-  if (phase === "starting" || phase === "blocked") return;
+  if (phase === "starting" || phase === "blocked" || phase === "crashed") return;
   characterPanel.render(state);
   for (const [name, b] of navButtons) b.classList.toggle("active", name === view);
   const panel = views[view];
@@ -199,13 +220,26 @@ function onTick(events: GameEvent[]): void {
   if (needsImmediateSave(events)) persist();
 }
 
+/** The loop has already stopped; nothing saves from here on, so the last good save survives. */
+function onLoopError(error: unknown): void {
+  console.error(error);
+  stopLoop();
+  phase = "crashed";
+  generation += 1;
+  overlay.message(
+    "Something went wrong",
+    `The game stopped to protect your save: ${error instanceof Error ? error.message : String(error)}. Reloading resumes from the last save.`,
+    button("Reload", () => location.reload()),
+  );
+}
+
 function startLoop(): void {
   if (document.visibilityState === "hidden") {
     phase = "paused";
     return;
   }
   phase = "running";
-  loop = createOnlineLoop(state, onTick);
+  loop = createOnlineLoop(state, onTick, undefined, onLoopError);
   loop.start();
   autosaveTimer = setInterval(persist, AUTOSAVE_INTERVAL_MS);
 }
@@ -305,6 +339,15 @@ document.addEventListener("visibilitychange", () => {
 // While paused or settling, the hide-time save is already authoritative; saving again would
 // advance lastActiveAt without simulating the hidden time.
 window.addEventListener("pagehide", persist);
+
+// Errors outside the simulation loop (UI handlers, async code) are shown instead of failing silently.
+window.addEventListener("error", (event) => {
+  if (phase !== "crashed") showNotice(`Unexpected error: ${event.message}. Details are in the browser console.`);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason instanceof Error ? event.reason.message : String(event.reason);
+  if (phase !== "crashed") showNotice(`Unexpected error: ${reason}. Details are in the browser console.`);
+});
 
 overlay.message("Exile Idle", "Loading…");
 const ownership = claimOwnership({ onAcquired: boot, onBlocked: lose, onLost: lose });

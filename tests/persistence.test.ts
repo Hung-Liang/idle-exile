@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createOnlineLoop, type OnlineLoop } from "../src/app/loop";
 import { flushAndSave, needsImmediateSave } from "../src/app/persistence";
 import { advance } from "../src/game/engine";
@@ -90,5 +90,29 @@ describe("needsImmediateSave", () => {
     expect(needsImmediateSave([{ type: "encounter_cleared", timeMs: 0, index: 3, isBoss: false }])).toBe(false);
     expect(needsImmediateSave([{ type: "player_died", timeMs: 0 }])).toBe(false);
     expect(needsImmediateSave([])).toBe(false);
+  });
+});
+
+describe("online loop errors", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("stops and reports a throwing tick instead of retrying it every interval", () => {
+    vi.useFakeTimers();
+    const errors: unknown[] = [];
+    let ticks = 0;
+    const loop = createOnlineLoop(
+      createInitialState(1),
+      () => {
+        ticks += 1;
+        throw new Error("boom");
+      },
+      () => 0,
+      (error) => errors.push(error),
+    );
+    loop.start();
+    vi.advanceTimersByTime(2_000);
+    expect(ticks).toBe(1);
+    expect(loop.running).toBe(false);
+    expect(errors).toEqual([new Error("boom")]);
   });
 });
