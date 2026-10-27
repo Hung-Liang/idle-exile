@@ -237,3 +237,39 @@ input.ilvl { width: 7em; }
   .passive-branches { grid-template-columns: minmax(0, 1fr); }
   .grid-table { display: block; overflow-x: auto; }
 }
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 0.7);
+}
+
+.overlay[hidden] { display: none; }
+
+.overlay-box {
+  width: min(520px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+.summary { border-collapse: collapse; width: 100%; }
+.summary th { text-align: left; font-weight: normal; color: var(--muted); padding: 2px 12px 2px 0; }
+.summary td { padding: 2px 0; }
+
+.save-text {
+  box-sizing: border-box;
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font: inherit;
+  word-break: break-all;
+}
+
+.notice { grid-column: 1 / -1; }
+#app > [hidden] { display: none; }

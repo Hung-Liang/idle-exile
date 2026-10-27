@@ -6,22 +6,53 @@ const TICK_MS = 250;
 /** Wall-clock gaps longer than this (e.g. a stalled tab) are not simulated online. */
 const MAX_DELTA_MS = 1_000;
 
-export interface LoopHandle {
+export interface OnlineLoop {
+  readonly running: boolean;
+  /** Starts ticking with the current instant as baseline; time before it is never simulated. */
+  start(): void;
   stop(): void;
+  /** Advances by the wall-clock delta since the last tick, so the sim is accounted up to now. No-op when stopped. */
+  flush(): GameEvent[];
 }
 
-/** Online driver: feeds wall-clock deltas into `advance()` (plan §4.4). */
-export function startLoop(state: GameState, onTick: (events: GameEvent[]) => void): LoopHandle {
-  let last = performance.now();
+/**
+ * Online driver (plan §4.4): the only code that turns wall-clock deltas into `advance()` calls.
+ * `perfNow` is injectable for tests.
+ */
+export function createOnlineLoop(
+  state: GameState,
+  onTick: (events: GameEvent[]) => void,
+  perfNow: () => number = () => performance.now(),
+): OnlineLoop {
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let lastTickPerf = 0;
   // Sub-millisecond remainders are carried so sim time does not drift from wall time.
   let carry = 0;
-  const id = setInterval(() => {
-    const now = performance.now();
-    const delta = Math.min(MAX_DELTA_MS, now - last) + carry;
-    last = now;
+
+  function flush(): GameEvent[] {
+    if (timer === null) return [];
+    const now = perfNow();
+    const delta = Math.min(MAX_DELTA_MS, now - lastTickPerf) + carry;
+    lastTickPerf = now;
     const ms = Math.floor(delta);
     carry = delta - ms;
-    onTick(advance(state, ms).events);
-  }, TICK_MS);
-  return { stop: () => clearInterval(id) };
+    return advance(state, ms).events;
+  }
+
+  return {
+    get running() {
+      return timer !== null;
+    },
+    start() {
+      if (timer !== null) return;
+      lastTickPerf = perfNow();
+      carry = 0;
+      timer = setInterval(() => onTick(flush()), TICK_MS);
+    },
+    stop() {
+      if (timer !== null) clearInterval(timer);
+      timer = null;
+    },
+    flush,
+  };
 }
