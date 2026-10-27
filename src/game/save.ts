@@ -6,6 +6,8 @@ import { validateState } from "./validate";
 export const SAVE_KEY = "exile-idle:save";
 export const BACKUP_KEY = "exile-idle:save.bak";
 export const CORRUPT_KEY = "exile-idle:save.corrupt";
+/** The save that the last import or reset replaced; no later save rotates it, unlike BACKUP_KEY. */
+export const REPLACED_KEY = "exile-idle:save.replaced";
 
 /** The subset of the Web Storage API the save system needs; `localStorage` satisfies it. */
 export interface KeyValueStorage {
@@ -114,6 +116,19 @@ export function writeSave(storage: KeyValueStorage, state: GameState, times: Sav
   }
   storage.setItem(SAVE_KEY, text);
   return { ok: true };
+}
+
+/**
+ * For import and reset. Like `writeSave`, but also keeps the replaced primary under
+ * REPLACED_KEY: the backup alone would be rotated away by the very next save.
+ */
+export function replaceSave(storage: KeyValueStorage, state: GameState, times: SaveTimes): WriteResult {
+  const previous = storage.getItem(SAVE_KEY);
+  const result = writeSave(storage, state, times);
+  if (result.ok && previous !== null) {
+    storage.setItem(REPLACED_KEY, previous);
+  }
+  return result;
 }
 
 /**

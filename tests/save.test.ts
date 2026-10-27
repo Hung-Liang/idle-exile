@@ -3,11 +3,13 @@ import fc from "fast-check";
 import {
   BACKUP_KEY,
   CORRUPT_KEY,
+  REPLACED_KEY,
   SAVE_KEY,
   decodeExport,
   encodeExport,
   loadSave,
   parseSave,
+  replaceSave,
   serializeSave,
   writeSave,
 } from "../src/game/save";
@@ -259,5 +261,45 @@ describe("encodeExport / decodeExport", () => {
     writeSave(storage, decoded.state, times);
     expect(storage.getItem(BACKUP_KEY)).toBe(currentText);
     expect(loadSave(storage, newGame).state).toEqual(createInitialState(26));
+  });
+});
+
+describe("replaceSave", () => {
+  it("keeps the replaced save after later saves rotate the backup", () => {
+    const storage = new MemoryStorage();
+    const current = createInitialState(27);
+    current.progression.totalKills = 4;
+    writeSave(storage, current, times);
+    const currentText = storage.getItem(SAVE_KEY);
+
+    const replacement = createInitialState(28);
+    expect(replaceSave(storage, replacement, times)).toEqual({ ok: true });
+    expect(storage.getItem(BACKUP_KEY)).toBe(currentText);
+    expect(storage.getItem(REPLACED_KEY)).toBe(currentText);
+
+    // The settlement save after the reload, then an autosave.
+    writeSave(storage, replacement, times);
+    writeSave(storage, replacement, times);
+    expect(storage.getItem(BACKUP_KEY)).not.toBe(currentText);
+    expect(storage.getItem(REPLACED_KEY)).toBe(currentText);
+  });
+
+  it("leaves storage untouched when the new state is invalid", () => {
+    const storage = new MemoryStorage();
+    writeSave(storage, createInitialState(29), times);
+    storage.setItem(REPLACED_KEY, "older");
+    const before = storage.getItem(SAVE_KEY);
+
+    const invalid = createInitialState(30);
+    invalid.character.level = -1;
+    expect(replaceSave(storage, invalid, times).ok).toBe(false);
+    expect(storage.getItem(SAVE_KEY)).toBe(before);
+    expect(storage.getItem(REPLACED_KEY)).toBe("older");
+  });
+
+  it("writes nothing to the replaced key when there was no save", () => {
+    const storage = new MemoryStorage();
+    expect(replaceSave(storage, createInitialState(31), times)).toEqual({ ok: true });
+    expect(storage.getItem(REPLACED_KEY)).toBeNull();
   });
 });

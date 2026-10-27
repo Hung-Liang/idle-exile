@@ -3,7 +3,7 @@ import { ZONES } from "../data/zones";
 import { dispatch, type ActionResult, type PlayerAction } from "../game/engine";
 import type { GameEvent } from "../game/events";
 import { offlineWindow, runOffline, type OfflineSummary } from "../game/offline";
-import { decodeExport, encodeExport, loadSave, writeSave, type LoadResult } from "../game/save";
+import { decodeExport, encodeExport, loadSave, replaceSave, writeSave, type LoadResult } from "../game/save";
 import { appendLog, createInitialState, type GameState } from "../game/state";
 import { createOnlineLoop, type OnlineLoop } from "./loop";
 import { runOfflineInWorker, type OfflineRun } from "./offline-runner";
@@ -107,12 +107,12 @@ const saveControls: SaveControls = {
   applyImport(text) {
     const decoded = decodeExport(text);
     if (!decoded.ok) return decoded.error;
-    // Flush first so the backup holds the current game up to this instant.
+    // Flush first so the replaced save holds the current game up to this instant.
     persist();
     const now = Date.now();
     // The imported save is treated as accounted up to now: the gap since it was exported is
     // never granted as offline time, so re-importing an old export cannot farm progress.
-    const result = writeSave(localStorage, decoded.state, { savedAt: now, lastActiveAt: now });
+    const result = replaceSave(localStorage, decoded.state, { savedAt: now, lastActiveAt: now });
     if (!result.ok) return result.errors.join("; ");
     replaceSaveAndReload();
     return null;
@@ -120,7 +120,7 @@ const saveControls: SaveControls = {
   reset() {
     persist();
     const now = Date.now();
-    const result = writeSave(localStorage, createInitialState(randomSeed()), { savedAt: now, lastActiveAt: now });
+    const result = replaceSave(localStorage, createInitialState(randomSeed()), { savedAt: now, lastActiveAt: now });
     if (!result.ok) {
       console.error(`reset failed: ${result.errors.join("; ")}`);
       return;

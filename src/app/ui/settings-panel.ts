@@ -1,3 +1,4 @@
+import { REPLACED_KEY } from "../../game/save";
 import type { Panel } from "./character-panel";
 import { button, el } from "./dom";
 
@@ -38,7 +39,7 @@ export function createSettingsPanel(controls: SaveControls): Panel {
       return;
     }
     importError.textContent = "";
-    if (!window.confirm(`Replace the current save with ${preview.description}?\nThe current save is kept as the backup.`)) return;
+    if (!window.confirm(`Replace the current save with ${preview.description}?\nThe current save is kept under ${REPLACED_KEY}.`)) return;
     const error = controls.applyImport(importBox.value);
     if (error !== null) importError.textContent = `Import failed: ${error}.`;
   });
@@ -64,7 +65,7 @@ export function createSettingsPanel(controls: SaveControls): Panel {
     el("div", "controls", importButton),
     importError,
     el("h3", undefined, "Reset"),
-    el("p", "muted", "Starts a new game. The current save is kept as the backup."),
+    el("p", "muted", `Starts a new game. The current save is kept under ${REPLACED_KEY}.`),
     el("div", "controls", resetInput, resetButton),
   );
 
