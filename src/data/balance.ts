@@ -90,3 +90,11 @@ export const MONSTER_DAMAGE_VARIANCE = 0.2;
 
 /** One passive point every N levels (levels 3, 6, …, 48). */
 export const PASSIVE_POINT_EVERY_LEVELS = 3;
+
+// --- Item comparison reference (plan §8.8) ---
+
+/** Pack DPS counts chain targets up to this pack size. */
+export const EVALUATE_PACK_SIZE = 3;
+
+/** Damage mix assumed by EHP; fractions sum to 1. Physical uses the zone's base monster hit. */
+export const EVALUATE_DAMAGE_MIX = { physical: 0.4, fire: 0.15, cold: 0.15, lightning: 0.15, chaos: 0.15 } as const;

@@ -1,4 +1,6 @@
+import type { CurrencyId } from "../data/currencies";
 import type { ZoneId } from "../data/zones";
+import type { EquipSlot, ItemId, Rarity } from "./equipment";
 import type { Activity, EncounterRuntime } from "./state";
 
 /** Emitted by `advance()` / `dispatch()` for the UI, log and tools. Never persisted. */
@@ -9,7 +11,11 @@ export type GameEvent =
   | { type: "player_died"; timeMs: number }
   | { type: "level_up"; timeMs: number; level: number }
   | { type: "zone_unlocked"; timeMs: number; zoneId: ZoneId }
-  | { type: "activity_changed"; timeMs: number; activity: Activity };
+  | { type: "activity_changed"; timeMs: number; activity: Activity }
+  | { type: "item_dropped"; timeMs: number; itemId: ItemId; rarity: Rarity; outcome: "kept" | "salvaged" | "overflow" }
+  | { type: "currency_gained"; timeMs: number; currencyId: CurrencyId; amount: number; source: "drop" | "salvage" }
+  | { type: "item_equipped"; timeMs: number; itemId: ItemId; slot: EquipSlot; replaced: ItemId | null }
+  | { type: "item_salvaged"; timeMs: number; itemId: ItemId };
 
 export type ScheduledEvent =
   | { kind: "phase_end"; time: number }

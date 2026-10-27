@@ -61,6 +61,44 @@ describe("validateState", () => {
       expectRejected((s) => s.inventory.order.push(s.character.equipment.weapon!), "equipped items must not be listed");
     });
 
+    describe("affixes", () => {
+      function withAffixes(s: GameState, rarity: "magic" | "rare", affixes: { affixId: string; values: number[] }[], itemLevel = 40): void {
+        const id = addItem(s, 2);
+        s.inventory.items[id] = { ...s.inventory.items[id]!, rarity, itemLevel, affixes };
+        s.inventory.order.push(id);
+      }
+
+      it("accepts valid affixes", () => {
+        expect(errorsAfter((s) => withAffixes(s, "magic", [{ affixId: "life_t1", values: [60] }]))).toEqual([]);
+      });
+
+      it("rejects unknown affixes, wrong value counts and out-of-range values", () => {
+        expectRejected((s) => withAffixes(s, "magic", [{ affixId: "nope", values: [1] }]), "unknown affix");
+        expectRejected((s) => withAffixes(s, "magic", [{ affixId: "life_t1", values: [] }]), "expected 1 values");
+        expectRejected((s) => withAffixes(s, "magic", [{ affixId: "life_t1", values: [80] }]), "expected integer in [55, 79]");
+      });
+
+      it("rejects affixes not allowed by class or item level", () => {
+        expectRejected((s) => withAffixes(s, "magic", [{ affixId: "local_phys_flat_t4", values: [3] }]), "not allowed on ring");
+        expectRejected((s) => withAffixes(s, "magic", [{ affixId: "life_t1", values: [60] }], 37), "requires a higher item level");
+      });
+
+      it("rejects duplicate groups and too many affixes for the rarity", () => {
+        expectRejected(
+          (s) => withAffixes(s, "rare", [{ affixId: "life_t1", values: [60] }, { affixId: "life_t2", values: [40] }]),
+          "affixes: contains duplicates",
+        );
+        expectRejected(
+          (s) =>
+            withAffixes(s, "magic", [
+              { affixId: "life_t1", values: [60] },
+              { affixId: "added_fire_t1", values: [16] },
+            ]),
+          "too many affixes for magic",
+        );
+      });
+    });
+
     it("rejects duplicate ids in order", () => {
       expectRejected((s) => {
         const id = addItem(s, 2);

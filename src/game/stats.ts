@@ -5,12 +5,11 @@ import {
   RESISTANCE_DEFAULT_MAX,
   RESISTANCE_MIN,
 } from "../data/balance";
-import { ITEM_BASES } from "../data/item-bases";
 import { PASSIVE_NODES } from "../data/passive-tree";
 import { SKILLS, type SkillDefinition } from "../data/skills";
 import type { StackId } from "../data/stacks";
 import { SUPPORTS } from "../data/supports";
-import { EQUIP_SLOTS } from "./equipment";
+import { EQUIP_SLOTS, resolveItem, type WeaponStats } from "./equipment";
 import {
   aggregate,
   applyScalar,
@@ -26,13 +25,7 @@ import { baseLife, type GameState } from "./state";
 
 export type Stacks = Readonly<Partial<Record<StackId, number>>>;
 
-export interface WeaponStats {
-  /** Local-adjusted physical damage range. */
-  physical: [number, number];
-  attacksPerSecond: number;
-  /** Percent. */
-  critChance: number;
-}
+export type { WeaponStats };
 
 /** Everything derived from equipment, skill, supports and passives; independent of combat state. */
 export interface PlayerBuild {
@@ -90,19 +83,12 @@ export function collectBuild(state: GameState): PlayerBuild {
     if (item === undefined) {
       throw new Error(`collectBuild: equipped item "${itemId}" is missing from inventory`);
     }
-    if (item.affixes.length > 0) {
-      // Affix definitions and local modifier resolution arrive with milestone M2.
-      throw new Error(`collectBuild: item "${itemId}" has affixes, which are not supported yet`);
+    const resolved = resolveItem(item);
+    if (resolved.weapon !== undefined) {
+      weapon = resolved.weapon;
     }
-    const base = ITEM_BASES[item.baseId];
-    if (base.weapon !== undefined) {
-      weapon = {
-        physical: [...base.weapon.physical],
-        attacksPerSecond: base.weapon.attacksPerSecond,
-        critChance: base.weapon.critChance,
-      };
-    }
-    baseArmor += base.armor ?? 0;
+    baseArmor += resolved.armor;
+    mods.push(...withSource(resolved.globalMods, { kind: "item", id: itemId }));
   }
 
   return { level: character.level, skill, mods, weapon, baseArmor };

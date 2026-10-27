@@ -93,21 +93,23 @@ export interface AttackRoll {
   critMultiplier: number;
 }
 
-/** Consumes exactly two `combat` draws: the damage roll, then the crit roll. */
-export function rollAttack(build: PlayerBuild, stacks: Stacks, rng: RngState): AttackRoll {
+/**
+ * Steps 1–5 of plan §6.2 for a given damage roll `t ∈ [0, 1)`. Every step is linear in `t`, so
+ * `t = 0.5` yields the expected portions (used by `evaluate.ts`).
+ */
+export function attackPortions(build: PlayerBuild, stacks: Stacks, t: number): DamagePortions {
   const { skill, mods } = build;
   const typed = (type: DamageType): AggregateContext => ({ tags: damageTags(skill, type), damageType: type, stacks });
 
-  // 1. Base: weapon (local-adjusted) physical plus global added damage per type.
+  // 1. Base: weapon (local-adjusted) damage plus global added damage per type.
   const ranges = {} as Record<DamageType, [number, number]>;
   for (const type of DAMAGE_TYPES) {
     const [addMin, addMax] = aggregate(mods, "added_damage", typed(type)).flatRange;
-    const base = type === "physical" ? build.weapon.physical : [0, 0];
-    ranges[type] = [base[0]! + addMin, base[1]! + addMax];
+    const base = type === "physical" ? build.weapon.physical : (build.weapon.added?.[type] ?? [0, 0]);
+    ranges[type] = [base[0] + addMin, base[1] + addMax];
   }
 
-  // 2. Roll: one shared draw for every type.
-  const t = nextFloat(rng);
+  // 2. Roll: one shared value for every type.
   const portions = emptyPortions();
   for (const type of DAMAGE_TYPES) {
     const [min, max] = ranges[type];
@@ -149,9 +151,14 @@ export function rollAttack(build: PlayerBuild, stacks: Stacks, rng: RngState): A
     portions[type] *= skill.effectiveness;
   }
 
+  return portions;
+}
+
+/** Consumes exactly two `combat` draws: the damage roll, then the crit roll. */
+export function rollAttack(build: PlayerBuild, stacks: Stacks, rng: RngState): AttackRoll {
+  const portions = attackPortions(build, stacks, nextFloat(rng));
   // 7. Crit: one roll per attack, drawn before any per-target work.
   const crit = nextChance(rng, critChance(build, stacks) / 100);
-
   return { portions, crit, critMultiplier: critMultiplier(build, stacks) };
 }
 
@@ -160,8 +167,8 @@ export interface HitTarget extends Defender {
   lifePct: number;
 }
 
-/** Per-target part of the pipeline: steps 6 and 8 of plan §6.2. Returns the final integer damage. */
-export function resolveHit(
+/** Per-target part of the pipeline: steps 6 and 8 of plan §6.2, before the final floor. */
+export function hitDamage(
   build: PlayerBuild,
   roll: AttackRoll,
   stacks: Stacks,
@@ -187,7 +194,18 @@ export function resolveHit(
     const penetration = aggregate(mods, "penetration", ctx).flat;
     sum += mitigatePortion(type, value, target, penetration);
   }
-  return finalDamage(sum);
+  return sum;
+}
+
+/** Steps 6 and 8 of plan §6.2. Returns the final integer damage. */
+export function resolveHit(
+  build: PlayerBuild,
+  roll: AttackRoll,
+  stacks: Stacks,
+  target: HitTarget,
+  chained: boolean,
+): number {
+  return finalDamage(hitDamage(build, roll, stacks, target, chained));
 }
 
 /** Consumes exactly one `combat` draw (the ±variance roll). Returns raw damage per type. */

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { AFFIXES, TIER_ITEM_LEVELS } from "../src/data/affixes";
 import { CURRENCIES } from "../src/data/currencies";
+import { AFFIX_CATEGORY_LIMITS, AFFIX_COUNT_WEIGHTS, DROP_TABLES, SALVAGE_YIELDS } from "../src/data/drop-tables";
 import { ITEM_BASES, STARTING_WEAPON_BASE } from "../src/data/item-bases";
 import { MAP_MODIFIERS } from "../src/data/map-modifiers";
 import { BOSSES, MONSTERS, type MonsterDefinition } from "../src/data/monsters";
@@ -9,7 +11,8 @@ import { STACKS } from "../src/data/stacks";
 import { SUPPORTS } from "../src/data/supports";
 import { ZONE_ORDER, ZONES } from "../src/data/zones";
 import { SUPPORT_SLOT_LEVELS, MAX_LEVEL } from "../src/data/balance";
-import { ITEM_CLASSES } from "../src/game/equipment";
+import { affixModifierSpecs } from "../src/game/affixes";
+import { ITEM_CLASSES, RARITIES } from "../src/game/equipment";
 import { DAMAGE_TYPES } from "../src/game/modifiers";
 import {
   checkGlobalUniqueness,
@@ -21,6 +24,7 @@ import {
 } from "./helpers/data-checks";
 
 const TABLES = {
+  AFFIXES,
   CURRENCIES,
   ITEM_BASES,
   MAP_MODIFIERS,
@@ -134,8 +138,117 @@ describe("data: items", () => {
     expect(ITEM_BASES[STARTING_WEAPON_BASE].requiredLevel).toBe(1);
   });
 
+  it("every class has one base per tier (two for weapons) at levels 1 / 12 / 25 / 38", () => {
+    for (const itemClass of ITEM_CLASSES) {
+      const levels = Object.values(ITEM_BASES)
+        .filter((b) => b.itemClass === itemClass)
+        .map((b) => b.requiredLevel)
+        .sort((a, b) => a - b);
+      const perTier = itemClass === "weapon" ? 2 : 1;
+      expect(levels, itemClass).toEqual([1, 12, 25, 38].flatMap((l) => Array(perTier).fill(l)));
+    }
+  });
+
   it("currencies have positive drop weights", () => {
     expect(Object.values(CURRENCIES).every((c) => c.dropWeight > 0)).toBe(true);
+  });
+});
+
+describe("data: affixes", () => {
+  it("affixes have valid classes, categories, weights, ranges and modifiers", () => {
+    const errors = Object.values(AFFIXES).flatMap((a) => {
+      const where = `affix ${a.id}`;
+      const e: string[] = [];
+      if (a.itemClasses.length === 0 || a.itemClasses.some((c) => !ITEM_CLASSES.includes(c))) e.push(`${where}: bad itemClasses`);
+      if (a.category !== "prefix" && a.category !== "suffix") e.push(`${where}: bad category`);
+      if (!(a.weight > 0)) e.push(`${where}: weight must be positive`);
+      if (a.modifiers.length === 0) e.push(`${where}: no modifiers`);
+      for (const mod of a.modifiers) {
+        const [min, max] = mod.range;
+        if (!Number.isInteger(min) || !Number.isInteger(max) || min > max) e.push(`${where}: invalid range [${min}, ${max}]`);
+      }
+      e.push(...checkModifierSpecs(where, affixModifierSpecs({ affixId: a.id, values: a.modifiers.map((m) => m.range[0]) })));
+      return e;
+    });
+    expectNoErrors(errors);
+  });
+
+  it("within a group, better tiers need a higher item level and roll higher values", () => {
+    const errors: string[] = [];
+    const byGroupAndClass = new Map<string, (typeof AFFIXES)[string][]>();
+    for (const a of Object.values(AFFIXES)) {
+      const key = `${a.group}|${a.itemClasses.join(",")}`;
+      byGroupAndClass.set(key, [...(byGroupAndClass.get(key) ?? []), a]);
+    }
+    for (const [key, tiers] of byGroupAndClass) {
+      const sorted = [...tiers].sort((x, y) => y.tier - x.tier); // worst (highest number) first
+      sorted.forEach((a, i) => {
+        if (i === 0) return;
+        const prev = sorted[i - 1]!;
+        if (a.tier !== prev.tier - 1) errors.push(`${key}: tiers are not consecutive`);
+        if (!(a.requiredItemLevel > prev.requiredItemLevel)) errors.push(`${key}: T${a.tier} item level not above T${prev.tier}`);
+        if (!(a.modifiers[0]!.range[1] > prev.modifiers[0]!.range[1])) errors.push(`${key}: T${a.tier} does not roll higher`);
+      });
+      if (sorted.at(-1)!.tier !== 1) errors.push(`${key}: best tier is not T1`);
+      if (sorted.at(-1)!.requiredItemLevel !== TIER_ITEM_LEVELS[1]) errors.push(`${key}: T1 item level`);
+    }
+    expectNoErrors(errors);
+  });
+
+  it("groups split by item class do not overlap classes and share a category", () => {
+    const errors: string[] = [];
+    const groups = new Map<string, (typeof AFFIXES)[string][]>();
+    for (const a of Object.values(AFFIXES)) groups.set(a.group, [...(groups.get(a.group) ?? []), a]);
+    for (const [group, affixes] of groups) {
+      if (new Set(affixes.map((a) => a.category)).size !== 1) errors.push(`${group}: mixed categories`);
+      const byTier = new Map<number, string[]>();
+      for (const a of affixes) byTier.set(a.tier, [...(byTier.get(a.tier) ?? []), ...a.itemClasses]);
+      for (const [tier, classes] of byTier) {
+        if (new Set(classes).size !== classes.length) errors.push(`${group} T${tier}: overlapping classes`);
+      }
+    }
+    expectNoErrors(errors);
+  });
+
+  it("every item class can roll at least one prefix and one suffix at item level 1", () => {
+    for (const itemClass of ITEM_CLASSES) {
+      const pool = Object.values(AFFIXES).filter((a) => a.itemClasses.includes(itemClass) && a.requiredItemLevel <= 1);
+      expect(pool.some((a) => a.category === "prefix"), itemClass).toBe(true);
+      expect(pool.some((a) => a.category === "suffix"), itemClass).toBe(true);
+    }
+  });
+});
+
+describe("data: drop tables", () => {
+  it("drop tables have valid chances, counts and rarity weights", () => {
+    for (const table of Object.values(DROP_TABLES)) {
+      expect(table.itemChance).toBeGreaterThan(0);
+      expect(table.itemChance).toBeLessThanOrEqual(1);
+      expect(table.currencyChance).toBeGreaterThan(0);
+      expect(table.currencyChance).toBeLessThanOrEqual(1);
+      expect(Number.isInteger(table.itemCount) && table.itemCount >= 1).toBe(true);
+      expect(Number.isInteger(table.currencyCount) && table.currencyCount >= 1).toBe(true);
+      expect(RARITIES.every((r) => table.rarityWeights[r] >= 0)).toBe(true);
+    }
+  });
+
+  it("affix count weights respect the category limits", () => {
+    for (const rarity of RARITIES) {
+      const weights = AFFIX_COUNT_WEIGHTS[rarity];
+      const limit = AFFIX_CATEGORY_LIMITS[rarity];
+      expect(weights.length - 1).toBeLessThanOrEqual(limit.prefix + limit.suffix);
+      expect(weights.some((w) => w > 0)).toBe(true);
+    }
+  });
+
+  it("salvage yields reference currencies with valid chances", () => {
+    const errors = RARITIES.flatMap((r) =>
+      SALVAGE_YIELDS[r].flatMap((y) => [
+        ...checkReference(`salvage ${r}`, y.currencyId, CURRENCIES),
+        ...(y.chance > 0 && y.chance <= 1 ? [] : [`salvage ${r}: bad chance`]),
+      ]),
+    );
+    expectNoErrors(errors);
   });
 });
 

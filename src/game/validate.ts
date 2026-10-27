@@ -1,5 +1,7 @@
 import { INVENTORY_CAPACITY, LOG_CAPACITY, MAX_LEVEL, MAX_MAP_TIER } from "../data/balance";
+import { AFFIXES } from "../data/affixes";
 import { CURRENCIES } from "../data/currencies";
+import { AFFIX_CATEGORY_LIMITS } from "../data/drop-tables";
 import { ITEM_BASES } from "../data/item-bases";
 import { MAP_MODIFIERS } from "../data/map-modifiers";
 import { PASSIVE_EDGES, PASSIVE_NODES, PASSIVE_ROOT } from "../data/passive-tree";
@@ -186,14 +188,33 @@ function checkItem(c: Checker, path: string, key: string, item: unknown): number
   c.intInRange(`${path}.itemLevel`, item.itemLevel, 1, 1000);
   if (!RARITIES.includes(item.rarity as never)) c.fail(`${path}.rarity`, "unknown rarity");
   if (c.arr(`${path}.affixes`, item.affixes)) {
+    const base = has(ITEM_BASES, item.baseId) ? ITEM_BASES[item.baseId as keyof typeof ITEM_BASES] : null;
+    const used = { prefix: 0, suffix: 0 };
+    const groups: string[] = [];
     item.affixes.forEach((affix, i) => {
       const ap = `${path}.affixes[${i}]`;
       if (!c.obj(ap, affix)) return;
-      c.str(`${ap}.affixId`, affix.affixId);
-      if (!Array.isArray(affix.values) || !affix.values.every((n) => typeof n === "number" && Number.isFinite(n))) {
-        c.fail(`${ap}.values`, "expected finite numbers");
+      if (!has(AFFIXES, affix.affixId)) {
+        c.fail(`${ap}.affixId`, `unknown affix ${JSON.stringify(affix.affixId)}`);
+        return;
       }
+      const def = AFFIXES[affix.affixId as string]!;
+      used[def.category] += 1;
+      groups.push(def.group);
+      if (base !== null && !def.itemClasses.includes(base.itemClass)) c.fail(ap, `not allowed on ${base.itemClass}`);
+      if (isNonNegInt(item.itemLevel) && def.requiredItemLevel > item.itemLevel) c.fail(ap, "requires a higher item level");
+      const values = affix.values;
+      if (!Array.isArray(values) || values.length !== def.modifiers.length) {
+        c.fail(`${ap}.values`, `expected ${def.modifiers.length} values`);
+        return;
+      }
+      def.modifiers.forEach((mod, j) => c.intInRange(`${ap}.values[${j}]`, values[j], mod.range[0], mod.range[1]));
     });
+    c.unique(`${path}.affixes`, groups);
+    if (RARITIES.includes(item.rarity as never)) {
+      const limits = AFFIX_CATEGORY_LIMITS[item.rarity as keyof typeof AFFIX_CATEGORY_LIMITS];
+      if (used.prefix > limits.prefix || used.suffix > limits.suffix) c.fail(`${path}.affixes`, `too many affixes for ${item.rarity as string}`);
+    }
   }
   return match === null ? null : Number(match[1]);
 }
@@ -313,28 +334,39 @@ function checkEncounter(c: Checker, v: unknown): void {
   }
 }
 
+function checkLootFilter(c: Checker, path: string, v: unknown): void {
+  if (!c.arr(path, v)) return;
+  v.forEach((rule, i) => {
+    const rp = `${path}[${i}]`;
+    if (!c.obj(rp, rule)) return;
+    if (rule.action !== "keep" && rule.action !== "salvage") c.fail(`${rp}.action`, "expected keep or salvage");
+    if (rule.minRarity !== undefined && !RARITIES.includes(rule.minRarity as never)) c.fail(`${rp}.minRarity`, "unknown rarity");
+    if (rule.minItemLevel !== undefined) c.nonNegInt(`${rp}.minItemLevel`, rule.minItemLevel);
+    if (rule.slots !== undefined && c.arr(`${rp}.slots`, rule.slots)) {
+      rule.slots.forEach((s, j) => {
+        if (!EQUIP_SLOTS.includes(s as never)) c.fail(`${rp}.slots[${j}]`, "unknown slot");
+      });
+    }
+    if (rule.hasStat !== undefined && c.arr(`${rp}.hasStat`, rule.hasStat)) {
+      rule.hasStat.forEach((s, j) => {
+        if (!STAT_IDS.includes(s as never)) c.fail(`${rp}.hasStat[${j}]`, "unknown stat");
+      });
+    }
+  });
+}
+
 function checkSettings(c: Checker, v: unknown): void {
   if (!c.obj("settings", v)) return;
   c.bool("settings.autoAdvance", v.autoAdvance);
   c.bool("settings.autoRetreat", v.autoRetreat);
-  if (!c.arr("settings.lootFilter", v.lootFilter)) return;
-  v.lootFilter.forEach((rule, i) => {
-    const path = `settings.lootFilter[${i}]`;
-    if (!c.obj(path, rule)) return;
-    if (rule.action !== "keep" && rule.action !== "salvage") c.fail(`${path}.action`, "expected keep or salvage");
-    if (rule.minRarity !== undefined && !RARITIES.includes(rule.minRarity as never)) c.fail(`${path}.minRarity`, "unknown rarity");
-    if (rule.minItemLevel !== undefined) c.nonNegInt(`${path}.minItemLevel`, rule.minItemLevel);
-    if (rule.slots !== undefined && c.arr(`${path}.slots`, rule.slots)) {
-      rule.slots.forEach((s, j) => {
-        if (!EQUIP_SLOTS.includes(s as never)) c.fail(`${path}.slots[${j}]`, "unknown slot");
-      });
-    }
-    if (rule.hasStat !== undefined && c.arr(`${path}.hasStat`, rule.hasStat)) {
-      rule.hasStat.forEach((s, j) => {
-        if (!STAT_IDS.includes(s as never)) c.fail(`${path}.hasStat[${j}]`, "unknown stat");
-      });
-    }
-  });
+  checkLootFilter(c, "settings.lootFilter", v.lootFilter);
+}
+
+/** Validates an untrusted loot filter rule list. Returns the errors (empty = valid). */
+export function validateLootFilter(input: unknown): string[] {
+  const c = new Checker();
+  checkLootFilter(c, "lootFilter", input);
+  return c.errors;
 }
 
 function checkLog(c: Checker, v: unknown): void {

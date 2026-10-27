@@ -3,7 +3,10 @@ import { STACKS, type StackId } from "../data/stacks";
 import type { ZoneId } from "../data/zones";
 import { mitigateHit, monsterStats, resolveHit, rollAttack, rollMonsterHit } from "./combat";
 import { createEncounter } from "./encounters";
+import type { EquipSlot, ItemId } from "./equipment";
 import { nextScheduledEvent, type GameEvent } from "./events";
+import { equipItem, salvageItem, unequipSlot, type InventoryError } from "./inventory";
+import { rollMonsterDrops } from "./loot";
 import {
   grantXp,
   recordBossDefeated,
@@ -13,7 +16,8 @@ import {
   xpMultiplier,
 } from "./progression";
 import { attackIntervalMs, collectBuild, computeDefenses, type DefensiveStats, type PlayerBuild } from "./stats";
-import { appendLog, type EncounterRuntime, type GameState } from "./state";
+import { appendLog, type EncounterRuntime, type GameState, type LootFilterRule } from "./state";
+import { validateLootFilter } from "./validate";
 import { resolveActivity } from "./zones";
 
 export interface AdvanceResult {
@@ -23,9 +27,14 @@ export interface AdvanceResult {
 export type PlayerAction =
   | { type: "set_auto_advance"; value: boolean }
   | { type: "set_auto_retreat"; value: boolean }
-  | { type: "travel_to_zone"; zoneId: ZoneId };
+  | { type: "travel_to_zone"; zoneId: ZoneId }
+  /** Without `slot`, the first empty matching slot (or the first matching slot) is used. */
+  | { type: "equip_item"; itemId: ItemId; slot?: EquipSlot }
+  | { type: "unequip_slot"; slot: EquipSlot }
+  | { type: "salvage_item"; itemId: ItemId }
+  | { type: "set_loot_filter"; rules: LootFilterRule[] };
 
-export type ActionError = "zone_locked";
+export type ActionError = "zone_locked" | "invalid_filter" | InventoryError;
 
 export type ActionResult = { ok: true; events: GameEvent[] } | { ok: false; reason: ActionError };
 
@@ -78,6 +87,15 @@ function onMonsterKilled(sim: Sim, encounter: EncounterRuntime, monsterIndex: nu
   }
   appendLog(state, "combat", `Slew ${stats.name} (+${xp} XP).`);
   sim.events.push({ type: "monster_killed", timeMs: state.simTimeMs, defId: monster.defId, isBoss: encounter.isBoss, xp });
+
+  const resolved = resolveActivity(state);
+  rollMonsterDrops(
+    state,
+    monster.level,
+    encounter.isBoss,
+    { quantityPct: resolved.itemQuantityPct, rarityPct: resolved.itemRarityPct },
+    sim.events,
+  );
 }
 
 function clearEncounter(sim: Sim, encounter: EncounterRuntime): void {
@@ -215,6 +233,10 @@ export function advance(state: GameState, ms: number): AdvanceResult {
   return { events: sim.events };
 }
 
+function inventoryResult(error: InventoryError | null, events: GameEvent[]): ActionResult {
+  return error === null ? { ok: true, events } : { ok: false, reason: error };
+}
+
 /** Applies a validated player action. */
 export function dispatch(state: GameState, action: PlayerAction): ActionResult {
   const events: GameEvent[] = [];
@@ -227,5 +249,17 @@ export function dispatch(state: GameState, action: PlayerAction): ActionResult {
       return { ok: true, events };
     case "travel_to_zone":
       return travelToZone(state, action.zoneId, events) ? { ok: true, events } : { ok: false, reason: "zone_locked" };
+    case "equip_item":
+      return inventoryResult(equipItem(state, action.itemId, action.slot, events), events);
+    case "unequip_slot":
+      return inventoryResult(unequipSlot(state, action.slot), events);
+    case "salvage_item":
+      return inventoryResult(salvageItem(state, action.itemId, events), events);
+    case "set_loot_filter":
+      if (validateLootFilter(action.rules).length > 0) {
+        return { ok: false, reason: "invalid_filter" };
+      }
+      state.settings.lootFilter = structuredClone(action.rules);
+      return { ok: true, events };
   }
 }

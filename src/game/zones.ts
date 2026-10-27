@@ -16,6 +16,9 @@ export interface ResolvedActivity {
   requiredEncounters: number;
   encountersCleared: number;
   bossPool: WeightedList<BossId>;
+  /** Map-modifier drop bonuses in percent (plan §9.1); 0 in campaign zones. */
+  itemQuantityPct: number;
+  itemRarityPct: number;
 }
 
 export function resolveActivity(state: GameState): ResolvedActivity {
@@ -31,6 +34,8 @@ export function resolveActivity(state: GameState): ResolvedActivity {
         requiredEncounters: ZONE_REQUIRED_ENCOUNTERS,
         encountersCleared: zoneProgress[activity.zoneId]?.encountersCleared ?? 0,
         bossPool: [{ id: zone.bossId, weight: 1 }],
+        itemQuantityPct: 0,
+        itemRarityPct: 0,
       };
     }
     case "map":
