@@ -1,3 +1,4 @@
+import type { CurrencyId } from "../data/currencies";
 import type { PassiveNodeId } from "../data/passive-tree";
 import type { SkillId } from "../data/skills";
 import type { SupportId } from "../data/supports";
@@ -5,6 +6,7 @@ import { DEATHS_BEFORE_RETREAT, RESPAWN_MS, TRANSITION_LIFE_RECOVERY_PCT, TRANSI
 import { STACKS, type StackId } from "../data/stacks";
 import type { ZoneId } from "../data/zones";
 import { mitigateHit, monsterStats, resolveHit, rollAttack, rollMonsterHit } from "./combat";
+import { useCurrency, type CraftError } from "./crafting";
 import { createEncounter } from "./encounters";
 import type { EquipSlot, ItemId } from "./equipment";
 import { nextScheduledEvent, type GameEvent } from "./events";
@@ -16,6 +18,7 @@ import {
   recordBossDefeated,
   recordEncounterCleared,
   retreat,
+  startMap,
   travelToZone,
   xpMultiplier,
 } from "./progression";
@@ -23,7 +26,7 @@ import { setActiveSkill, setSupport, type SkillError } from "./skills";
 import { attackIntervalMs, collectBuild, computeDefenses, type DefensiveStats, type PlayerBuild } from "./stats";
 import { appendLog, type EncounterRuntime, type GameState, type LootFilterRule } from "./state";
 import { validateLootFilter } from "./validate";
-import { resolveActivity } from "./zones";
+import { resolveActivity, type ResolvedActivity } from "./zones";
 
 export interface AdvanceResult {
   events: GameEvent[];
@@ -42,10 +45,14 @@ export type PlayerAction =
   | { type: "set_auto_advance"; value: boolean }
   | { type: "set_auto_retreat"; value: boolean }
   | { type: "travel_to_zone"; zoneId: ZoneId }
+  /** Starts a new run (fresh modifiers) of an unlocked map tier. */
+  | { type: "start_map"; tier: number }
   /** Without `slot`, the first empty matching slot (or the first matching slot) is used. */
   | { type: "equip_item"; itemId: ItemId; slot?: EquipSlot }
   | { type: "unequip_slot"; slot: EquipSlot }
   | { type: "salvage_item"; itemId: ItemId }
+  /** Works on equipped and unequipped items. */
+  | { type: "use_currency"; currencyId: CurrencyId; itemId: ItemId }
   | { type: "set_loot_filter"; rules: LootFilterRule[] }
   | { type: "set_active_skill"; skillId: SkillId }
   /** `supportId: null` empties the slot. */
@@ -53,7 +60,7 @@ export type PlayerAction =
   | { type: "allocate_passive"; nodeId: PassiveNodeId }
   | { type: "reset_passives" };
 
-export type ActionError = "zone_locked" | "invalid_filter" | InventoryError | SkillError | PassiveError;
+export type ActionError = "zone_locked" | "map_locked" | "invalid_filter" | InventoryError | CraftError | SkillError | PassiveError;
 
 export type ActionResult = { ok: true; events: GameEvent[] } | { ok: false; reason: ActionError };
 
@@ -63,6 +70,8 @@ interface Sim {
   events: GameEvent[];
   build: PlayerBuild;
   defenses: DefensiveStats;
+  /** The current activity's view; refreshed at encounter start and whenever the activity changes. */
+  activity: ResolvedActivity;
 }
 
 function refreshBuild(sim: Sim): void {
@@ -70,9 +79,17 @@ function refreshBuild(sim: Sim): void {
   sim.defenses = computeDefenses(sim.build);
 }
 
+/** Activity changes (boss kill, retreat) can change player mods, so the build is refreshed too. */
+function refreshActivity(sim: Sim): void {
+  sim.activity = resolveActivity(sim.state);
+  refreshBuild(sim);
+}
+
 function startEncounter(sim: Sim): EncounterRuntime {
   const { state } = sim;
-  const encounter = createEncounter(resolveActivity(state), state.rng.encounter, state.simTimeMs);
+  // Re-resolved here because encounter progress is part of the view.
+  sim.activity = resolveActivity(state);
+  const encounter = createEncounter(sim.activity, state.rng.encounter, state.simTimeMs);
   state.encounter = encounter;
   if (encounter.isBoss) {
     appendLog(state, "info", `${monsterStats(encounter.monsters[0]!.defId, encounter.monsters[0]!.level).name} appears!`);
@@ -88,7 +105,7 @@ function stackIsReferenced(build: PlayerBuild, id: StackId): boolean {
 function onMonsterKilled(sim: Sim, encounter: EncounterRuntime, monsterIndex: number): void {
   const { state } = sim;
   const monster = encounter.monsters[monsterIndex]!;
-  const stats = monsterStats(monster.defId, monster.level);
+  const stats = monsterStats(monster.defId, monster.level, sim.activity.monsterMods);
   monster.alive = false;
   state.progression.totalKills += 1;
 
@@ -107,12 +124,11 @@ function onMonsterKilled(sim: Sim, encounter: EncounterRuntime, monsterIndex: nu
   appendLog(state, "combat", `Slew ${stats.name} (+${xp} XP).`);
   sim.events.push({ type: "monster_killed", timeMs: state.simTimeMs, defId: monster.defId, isBoss: encounter.isBoss, xp });
 
-  const resolved = resolveActivity(state);
   rollMonsterDrops(
     state,
     monster.level,
     encounter.isBoss,
-    { quantityPct: resolved.itemQuantityPct, rarityPct: resolved.itemRarityPct },
+    { quantityPct: sim.activity.itemQuantityPct, rarityPct: sim.activity.itemRarityPct },
     sim.events,
   );
 }
@@ -130,6 +146,7 @@ function clearEncounter(sim: Sim, encounter: EncounterRuntime): void {
   sim.events.push({ type: "encounter_cleared", timeMs: state.simTimeMs, index: encounter.index, isBoss: encounter.isBoss });
   if (encounter.isBoss) {
     recordBossDefeated(state, sim.events);
+    refreshActivity(sim);
   } else {
     recordEncounterCleared(state);
   }
@@ -148,7 +165,7 @@ function playerAttack(sim: Sim, encounter: EncounterRuntime): void {
 
   targets.forEach((monsterIndex, hitIndex) => {
     const monster = encounter.monsters[monsterIndex]!;
-    const stats = monsterStats(monster.defId, monster.level);
+    const stats = monsterStats(monster.defId, monster.level, sim.activity.monsterMods);
     const damage = resolveHit(
       build,
       roll,
@@ -175,7 +192,7 @@ function playerAttack(sim: Sim, encounter: EncounterRuntime): void {
 function monsterAttack(sim: Sim, encounter: EncounterRuntime, monsterIndex: number): void {
   const { state } = sim;
   const monster = encounter.monsters[monsterIndex]!;
-  const stats = monsterStats(monster.defId, monster.level);
+  const stats = monsterStats(monster.defId, monster.level, sim.activity.monsterMods);
   const damage = mitigateHit(rollMonsterHit(stats, state.rng.combat), {
     armor: sim.defenses.armor,
     resistances: sim.defenses.resistances,
@@ -199,8 +216,8 @@ function playerDied(sim: Sim, encounter: EncounterRuntime, killerName: string): 
   appendLog(state, "death", `Slain by ${killerName}.`);
   sim.events.push({ type: "player_died", timeMs: state.simTimeMs });
 
-  if (state.settings.autoRetreat && state.progression.consecutiveDeaths >= DEATHS_BEFORE_RETREAT) {
-    retreat(state, sim.events);
+  if (state.settings.autoRetreat && state.progression.consecutiveDeaths >= DEATHS_BEFORE_RETREAT && retreat(state, sim.events)) {
+    refreshActivity(sim);
   }
 }
 
@@ -221,7 +238,7 @@ export function advance(state: GameState, ms: number, options: AdvanceOptions = 
   }
   const targetTime = state.simTimeMs + ms;
   const build = collectBuild(state);
-  const sim: Sim = { state, events: [], build, defenses: computeDefenses(build) };
+  const sim: Sim = { state, events: [], build, defenses: computeDefenses(build), activity: resolveActivity(state) };
   const budget = options.eventBudget ?? Infinity;
   let resolved = 0;
 
@@ -258,7 +275,7 @@ export function advance(state: GameState, ms: number, options: AdvanceOptions = 
   return { events: sim.events, eventsResolved: resolved, budgetExhausted: false };
 }
 
-function errorResult(error: InventoryError | SkillError | PassiveError | null, events: GameEvent[]): ActionResult {
+function errorResult(error: InventoryError | CraftError | SkillError | PassiveError | null, events: GameEvent[]): ActionResult {
   return error === null ? { ok: true, events } : { ok: false, reason: error };
 }
 
@@ -274,6 +291,10 @@ export function dispatch(state: GameState, action: PlayerAction): ActionResult {
       return { ok: true, events };
     case "travel_to_zone":
       return travelToZone(state, action.zoneId, events) ? { ok: true, events } : { ok: false, reason: "zone_locked" };
+    case "start_map":
+      return startMap(state, action.tier, events) ? { ok: true, events } : { ok: false, reason: "map_locked" };
+    case "use_currency":
+      return errorResult(useCurrency(state, action.currencyId, action.itemId, events), events);
     case "equip_item":
       return errorResult(equipItem(state, action.itemId, action.slot, events), events);
     case "unequip_slot":

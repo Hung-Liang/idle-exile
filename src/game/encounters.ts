@@ -1,10 +1,11 @@
 import { monsterStats } from "./combat";
+import type { Modifier } from "./modifiers";
 import { pickWeighted, weightedIndex, type RngState } from "./random";
 import type { EncounterRuntime, MonsterRuntime } from "./state";
 import type { ResolvedActivity } from "./zones";
 
-function spawnMonster(defId: string, level: number, now: number): MonsterRuntime {
-  const stats = monsterStats(defId, level);
+function spawnMonster(defId: string, level: number, mods: readonly Modifier[], now: number): MonsterRuntime {
+  const stats = monsterStats(defId, level, mods);
   return {
     defId,
     level,
@@ -24,11 +25,11 @@ export function createEncounter(resolved: ResolvedActivity, rng: RngState, now: 
   const isBoss = resolved.encountersCleared >= resolved.requiredEncounters;
   const monsters: MonsterRuntime[] = [];
   if (isBoss) {
-    monsters.push(spawnMonster(pickWeighted(rng, resolved.bossPool), resolved.monsterLevel, now));
+    monsters.push(spawnMonster(pickWeighted(rng, resolved.bossPool), resolved.monsterLevel, resolved.monsterMods, now));
   } else {
     const packSize = weightedIndex(rng, resolved.packSizeWeights) + 1;
     for (let i = 0; i < packSize; i++) {
-      monsters.push(spawnMonster(pickWeighted(rng, resolved.monsterPool), resolved.monsterLevel, now));
+      monsters.push(spawnMonster(pickWeighted(rng, resolved.monsterPool), resolved.monsterLevel, resolved.monsterMods, now));
     }
   }
   return {

@@ -77,11 +77,24 @@ describe("zone progress", () => {
     expect(state.progression.unlockedZones).toEqual(["ashen_outskirts", "drowned_fields"]);
   });
 
-  it("the last zone's boss unlocks map tier 1", () => {
+  it("the last zone's boss unlocks map tier 1 and auto-advances into it", () => {
     const state = createInitialState(1);
     const last = ZONE_ORDER[ZONE_ORDER.length - 1]!;
     state.progression.unlockedZones = [...ZONE_ORDER];
     state.progression.activity = { kind: "zone", zoneId: last };
+    const events: GameEvent[] = [];
+    recordBossDefeated(state, events);
+    expect(state.progression.unlockedMapTier).toBe(1);
+    expect(state.progression.activity).toMatchObject({ kind: "map", tier: 1, encountersCleared: 0 });
+    expect(events.map((e) => e.type)).toEqual(["map_tier_unlocked", "activity_changed"]);
+  });
+
+  it("without auto-advance the last zone's boss only unlocks maps", () => {
+    const state = createInitialState(1);
+    const last = ZONE_ORDER[ZONE_ORDER.length - 1]!;
+    state.progression.unlockedZones = [...ZONE_ORDER];
+    state.progression.activity = { kind: "zone", zoneId: last };
+    state.settings.autoAdvance = false;
     recordBossDefeated(state, []);
     expect(state.progression.unlockedMapTier).toBe(1);
     expect(state.progression.activity).toEqual({ kind: "zone", zoneId: last });

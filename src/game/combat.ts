@@ -11,7 +11,7 @@ import {
   RESISTANCE_MIN,
 } from "../data/balance";
 import { getMonsterDefinition } from "../data/monsters";
-import { aggregate, DAMAGE_TYPES, type AggregateContext, type DamageType } from "./modifiers";
+import { aggregate, applyScalar, DAMAGE_TYPES, type AggregateContext, type DamageType, type Modifier } from "./modifiers";
 import { nextChance, nextFloat, type RngState } from "./random";
 import { critChance, critMultiplier, damageTags, type PlayerBuild, type Stacks } from "./stats";
 
@@ -26,6 +26,7 @@ export interface MonsterStats {
   maxLife: number;
   /** Mean damage per hit, before the ±variance roll. */
   damagePerHit: number;
+  /** Fractions of each hit per type; sums to 1 unless map modifiers add extra damage. */
   damageSplit: Partial<Record<DamageType, number>>;
   attackIntervalMs: number;
   armor: number;
@@ -34,14 +35,31 @@ export interface MonsterStats {
   xp: number;
 }
 
-export function monsterStats(defId: string, level: number): MonsterStats {
+const MONSTER_CONTEXT: AggregateContext = { tags: [], stacks: {} };
+
+/**
+ * `mods` are the activity's monster modifiers (map modifiers): `life_max` and `damage` scale the
+ * curves, and `gain_as_extra` adds that percentage of each hit as the given type, so the
+ * damage split may then sum to more than 1.
+ */
+export function monsterStats(defId: string, level: number, mods: readonly Modifier[] = []): MonsterStats {
   const def = getMonsterDefinition(defId);
   const aps = Math.min(MAX_ATTACKS_PER_SECOND, def.attacksPerSecond);
+  let damageSplit = def.damageSplit;
+  if (mods.length > 0) {
+    damageSplit = { ...def.damageSplit };
+    for (const type of DAMAGE_TYPES) {
+      const extra = aggregate(mods, "gain_as_extra", { ...MONSTER_CONTEXT, damageType: type }).flat;
+      if (extra > 0) {
+        damageSplit[type] = (damageSplit[type] ?? 0) + extra / 100;
+      }
+    }
+  }
   return {
     name: def.name,
-    maxLife: Math.max(1, Math.round(monsterBaseLife(level) * def.lifeMult)),
-    damagePerHit: monsterBaseDamage(level) * def.damageMult,
-    damageSplit: def.damageSplit,
+    maxLife: Math.max(1, Math.round(applyScalar(monsterBaseLife(level) * def.lifeMult, aggregate(mods, "life_max", MONSTER_CONTEXT)))),
+    damagePerHit: applyScalar(monsterBaseDamage(level) * def.damageMult, aggregate(mods, "damage", MONSTER_CONTEXT)),
+    damageSplit,
     attackIntervalMs: Math.round(1000 / aps),
     armor: monsterBaseArmor(level) * def.armorMult,
     resistances: def.resistances,

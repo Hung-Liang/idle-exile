@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import { INVENTORY_CAPACITY } from "../src/data/balance";
+import { CURRENCIES, type CurrencyId } from "../src/data/currencies";
 import { EQUIP_SLOTS, type ItemInstance } from "../src/game/equipment";
 import { advance, dispatch, type PlayerAction } from "../src/game/engine";
 import { generateItem } from "../src/game/loot";
@@ -121,12 +122,16 @@ describe("property: any sequence of actions keeps the state consistent", () => {
       fc.record({ kind: fc.constant("unequip" as const), slot: fc.constantFrom(...EQUIP_SLOTS) }),
       fc.record({ kind: fc.constant("salvage" as const), pick: fc.nat() }),
       fc.record({ kind: fc.constant("loot" as const), ilvl: fc.integer({ min: 1, max: 45 }), rarity: fc.constantFrom("normal", "magic", "rare" as const) }),
+      fc.record({ kind: fc.constant("craft" as const), pick: fc.nat(), currencyId: fc.constantFrom(...(Object.keys(CURRENCIES) as CurrencyId[])) }),
+      fc.record({ kind: fc.constant("map" as const), tier: fc.integer({ min: 0, max: 3 }) }),
     );
     fc.assert(
       fc.property(fc.integer({ min: 0, max: 0xffffffff }), fc.array(action, { maxLength: 30 }), (seed, actions) => {
         const state = createInitialState(seed);
         state.character.level = 20;
         state.character.supportIds = [null, null];
+        state.progression.unlockedMapTier = 2;
+        for (const id of Object.keys(CURRENCIES) as CurrencyId[]) state.inventory.currency[id] = 3;
         for (const a of actions) {
           const order = state.inventory.order;
           let playerAction: PlayerAction | null = null;
@@ -142,6 +147,14 @@ describe("property: any sequence of actions keeps the state consistent", () => {
               break;
             case "salvage":
               if (order.length > 0) playerAction = { type: "salvage_item", itemId: order[a.pick % order.length]! };
+              break;
+            case "craft": {
+              const ids = Object.keys(state.inventory.items);
+              playerAction = { type: "use_currency", currencyId: a.currencyId, itemId: ids[a.pick % ids.length]! };
+              break;
+            }
+            case "map":
+              playerAction = { type: "start_map", tier: a.tier };
               break;
             case "loot": {
               const item = generateItem(state, a.ilvl, a.rarity, state.rng.loot);

@@ -14,11 +14,13 @@ export type GameEvent =
   | { type: "player_died"; timeMs: number }
   | { type: "level_up"; timeMs: number; level: number }
   | { type: "zone_unlocked"; timeMs: number; zoneId: ZoneId }
+  | { type: "map_tier_unlocked"; timeMs: number; tier: number }
   | { type: "activity_changed"; timeMs: number; activity: Activity }
   | { type: "item_dropped"; timeMs: number; itemId: ItemId; rarity: Rarity; outcome: "kept" | "salvaged" | "overflow" }
   | { type: "currency_gained"; timeMs: number; currencyId: CurrencyId; amount: number; source: "drop" | "salvage" }
   | { type: "item_equipped"; timeMs: number; itemId: ItemId; slot: EquipSlot; replaced: ItemId | null }
   | { type: "item_salvaged"; timeMs: number; itemId: ItemId }
+  | { type: "item_crafted"; timeMs: number; itemId: ItemId; currencyId: CurrencyId }
   | { type: "skill_changed"; timeMs: number; skillId: SkillId }
   | { type: "support_changed"; timeMs: number; slot: number; supportId: SupportId | null; removed: SupportId | null }
   | { type: "passive_allocated"; timeMs: number; nodeId: PassiveNodeId }

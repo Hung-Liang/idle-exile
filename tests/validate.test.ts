@@ -215,11 +215,24 @@ describe("validateState", () => {
       expectRejected((s) => (s.progression.activity = { kind: "zone", zoneId: "glass_ridge" }), "zone is not unlocked");
     });
 
-    it("rejects map runs until they are implemented", () => {
+    it("accepts a map run within the unlocked tiers", () => {
+      expect(
+        errorsAfter((s) => {
+          s.progression.unlockedMapTier = 2;
+          s.progression.activity = { kind: "map", tier: 2, modifiers: ["fortified", "draining"], encountersCleared: 12 };
+        }),
+      ).toEqual([]);
+    });
+
+    it("rejects map runs with too many modifiers or too much progress", () => {
       expectRejected((s) => {
         s.progression.unlockedMapTier = 1;
-        s.progression.activity = { kind: "map", tier: 1, modifiers: [], encountersCleared: 0 };
-      }, "map runs are not supported yet");
+        s.progression.activity = { kind: "map", tier: 1, modifiers: ["fortified", "savage", "swarming"], encountersCleared: 0 };
+      }, "too many modifiers");
+      expectRejected((s) => {
+        s.progression.unlockedMapTier = 1;
+        s.progression.activity = { kind: "map", tier: 1, modifiers: [], encountersCleared: 13 };
+      }, "progression.activity.encountersCleared");
     });
 
     it("rejects a map activity while maps are locked or above the unlocked tier", () => {

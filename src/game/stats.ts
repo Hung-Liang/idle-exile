@@ -22,6 +22,7 @@ import {
   type Tag,
 } from "./modifiers";
 import { baseLife, type GameState } from "./state";
+import { resolveActivity } from "./zones";
 
 export type Stacks = Readonly<Partial<Record<StackId, number>>>;
 
@@ -90,6 +91,9 @@ export function collectBuild(state: GameState): PlayerBuild {
     baseArmor += resolved.armor;
     mods.push(...withSource(resolved.globalMods, { kind: "item", id: itemId }));
   }
+
+  // Activity modifiers (e.g. Draining in a map) are part of the build while the activity lasts.
+  mods.push(...resolveActivity(state).playerMods);
 
   return { level: character.level, skill, mods, weapon, baseArmor };
 }

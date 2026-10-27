@@ -38,7 +38,7 @@ function expectValid(state: GameState): void {
 function variedState(seed: number, variant: number): GameState {
   const state = createInitialState(seed);
   const c = state.character;
-  switch (variant % 3) {
+  switch (variant % 4) {
     case 0:
       break;
     case 1:
@@ -52,6 +52,13 @@ function variedState(seed: number, variant: number): GameState {
       c.activeSkillId = "rapid_assault";
       c.supportIds = ["brute_force"];
       c.allocatedPassives = ["m1", "m2"];
+      break;
+    case 3:
+      // Overleveled map run: exercises map modifiers, map boss write-back and map retreat.
+      c.level = 40;
+      c.supportIds = [null, null];
+      state.progression.unlockedMapTier = 2;
+      state.progression.activity = { kind: "map", tier: 2, modifiers: ["savage", "swarming"], encountersCleared: 9 };
       break;
   }
   return state;
@@ -243,7 +250,7 @@ describe("advance: split invariance", () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 0, max: 0xffffffff }),
-        fc.integer({ min: 0, max: 2 }),
+        fc.integer({ min: 0, max: 3 }),
         fc.integer({ min: 0, max: 600_000 }),
         fc.array(fc.integer({ min: 0, max: 600_000 }), { maxLength: 6 }),
         (seed, variant, total, cuts) => {

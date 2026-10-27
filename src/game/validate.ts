@@ -4,6 +4,7 @@ import { CURRENCIES } from "../data/currencies";
 import { AFFIX_CATEGORY_LIMITS } from "../data/drop-tables";
 import { ITEM_BASES } from "../data/item-bases";
 import { MAP_MODIFIERS } from "../data/map-modifiers";
+import { MAP_MODIFIER_COUNT_WEIGHTS, MAP_REQUIRED_ENCOUNTERS } from "../data/maps";
 import { PASSIVE_NODES, PASSIVE_ROOT } from "../data/passive-tree";
 import { SKILLS } from "../data/skills";
 import { STACKS } from "../data/stacks";
@@ -303,15 +304,14 @@ function checkProgression(c: Checker, v: unknown): void {
     c.ref("progression.activity.zoneId", a.zoneId, ZONES);
     if (!unlocked.includes(a.zoneId)) c.fail("progression.activity.zoneId", "zone is not unlocked");
   } else if (a.kind === "map") {
-    // resolveActivity() cannot run maps until M5; accepting one would crash the first advance().
-    c.fail("progression.activity", "map runs are not supported yet");
     const maxTier = isNonNegInt(v.unlockedMapTier) ? v.unlockedMapTier : 0;
     c.intInRange("progression.activity.tier", a.tier, 1, Math.max(1, maxTier));
     if (maxTier === 0) c.fail("progression.activity", "maps are locked");
-    c.nonNegInt("progression.activity.encountersCleared", a.encountersCleared);
+    c.intInRange("progression.activity.encountersCleared", a.encountersCleared, 0, MAP_REQUIRED_ENCOUNTERS);
     if (c.arr("progression.activity.modifiers", a.modifiers)) {
       a.modifiers.forEach((id, i) => c.ref(`progression.activity.modifiers[${i}]`, id, MAP_MODIFIERS));
       c.unique("progression.activity.modifiers", a.modifiers);
+      if (a.modifiers.length > MAP_MODIFIER_COUNT_WEIGHTS.length - 1) c.fail("progression.activity.modifiers", "too many modifiers");
     }
   } else {
     c.fail("progression.activity.kind", "expected zone or map");
