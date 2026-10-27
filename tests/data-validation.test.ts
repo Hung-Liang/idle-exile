@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CURRENCIES } from "../src/data/currencies";
 import { ITEM_BASES, STARTING_WEAPON_BASE } from "../src/data/item-bases";
 import { MAP_MODIFIERS } from "../src/data/map-modifiers";
+import { BOSSES, MONSTERS, type MonsterDefinition } from "../src/data/monsters";
 import { PASSIVE_EDGES, PASSIVE_NODES, PASSIVE_ROOT } from "../src/data/passive-tree";
 import { SKILLS } from "../src/data/skills";
 import { STACKS } from "../src/data/stacks";
@@ -9,6 +10,7 @@ import { SUPPORTS } from "../src/data/supports";
 import { ZONE_ORDER, ZONES } from "../src/data/zones";
 import { SUPPORT_SLOT_LEVELS, MAX_LEVEL } from "../src/data/balance";
 import { ITEM_CLASSES } from "../src/game/equipment";
+import { DAMAGE_TYPES } from "../src/game/modifiers";
 import {
   checkGlobalUniqueness,
   checkGraph,
@@ -22,6 +24,8 @@ const TABLES = {
   CURRENCIES,
   ITEM_BASES,
   MAP_MODIFIERS,
+  MONSTERS,
+  BOSSES,
   PASSIVE_NODES,
   SKILLS,
   STACKS,
@@ -148,5 +152,45 @@ describe("data: zones and maps", () => {
 
   it("stacks have a positive max", () => {
     expect(Object.values(STACKS).every((s) => s.max > 0)).toBe(true);
+  });
+});
+
+function checkMonster(where: string, m: MonsterDefinition): string[] {
+  const e: string[] = [];
+  for (const key of ["lifeMult", "damageMult", "attacksPerSecond", "xpMult"] as const) {
+    if (!(m[key] > 0)) e.push(`${where}: ${key} must be positive`);
+  }
+  if (!(m.armorMult >= 0)) e.push(`${where}: negative armorMult`);
+  const split = Object.entries(m.damageSplit);
+  if (split.some(([type, f]) => !DAMAGE_TYPES.includes(type as never) || !(f > 0))) e.push(`${where}: invalid damageSplit`);
+  if (Math.abs(split.reduce((sum, [, f]) => sum + f, 0) - 1) > 1e-9) e.push(`${where}: damageSplit must sum to 1`);
+  for (const [type, res] of Object.entries(m.resistances)) {
+    if (!DAMAGE_TYPES.includes(type as never) || !(res >= -100 && res <= 100)) e.push(`${where}: invalid resistance ${type}`);
+  }
+  return e;
+}
+
+describe("data: monsters and zones", () => {
+  it("monster and boss definitions are valid", () => {
+    expectNoErrors([
+      ...Object.values(MONSTERS).flatMap((m) => checkMonster(`monster ${m.id}`, m)),
+      ...Object.values(BOSSES).flatMap((m) => checkMonster(`boss ${m.id}`, m)),
+    ]);
+  });
+
+  it("zone pools and bosses resolve, and archetypes respect their minimum zone level", () => {
+    const errors = Object.values(ZONES).flatMap((z) => [
+      ...(z.monsterPool.length > 0 ? [] : [`zone ${z.id}: empty monster pool`]),
+      ...z.monsterPool.flatMap((id) => checkReference(`zone ${z.id} pool`, id, MONSTERS)),
+      ...z.monsterPool.flatMap((id) =>
+        Object.hasOwn(MONSTERS, id) && MONSTERS[id].minZoneLevel > z.monsterLevel ? [`zone ${z.id}: ${id} is below its min zone level`] : [],
+      ),
+      ...checkReference(`zone ${z.id} boss`, z.bossId, BOSSES),
+    ]);
+    expectNoErrors(errors);
+  });
+
+  it("every boss belongs to exactly one zone", () => {
+    expect(Object.values(ZONES).map((z) => z.bossId).sort()).toEqual(Object.keys(BOSSES).sort());
   });
 });
