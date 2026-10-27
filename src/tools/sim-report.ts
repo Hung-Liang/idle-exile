@@ -1,6 +1,7 @@
 // Headless balance simulation (plan §14.4) with fixed build presets.
 //
 //   npm run sim -- [--preset=<id>|all] [--zone=<id>] [--level=<n>] [--hours=<n>] [--seed=<n>] [--gear=auto|none]
+//                  [--resume=<minutes>]
 //
 // --preset=all runs every preset with the same options and prints a side-by-side summary.
 // Without --zone it runs the campaign from the start with auto-advance on and reports when
@@ -8,6 +9,8 @@
 // With --gear=auto (default) dropped items are equipped by a tool-only heuristic: equip when
 // DPS or EHP improves without lowering the other by more than 5%. Unequipped items are then
 // salvaged so the inventory never overflows.
+// With --resume=<minutes> (campaign only), auto-advance is switched back on every N minutes
+// of sim time after a retreat paused it, as a returning player would.
 
 import { MAX_LEVEL, xpToNextLevel } from "../data/balance";
 import { CURRENCIES, type CurrencyId } from "../data/currencies";
@@ -32,13 +35,15 @@ interface Options {
   hours: number;
   seed: number;
   autoGear: boolean;
+  /** Sim ms between re-enabling auto-advance; null = never. */
+  resumeMs: number | null;
 }
 
 /** Presets are re-applied between chunks, so a level-up takes effect at most this late. */
 const CHUNK_MS = 10_000;
 
 function parseArgs(argv: readonly string[]): Options {
-  const options: Options = { presets: [PRESETS[0]!], zone: null, level: 1, hours: 8, seed: 1, autoGear: true };
+  const options: Options = { presets: [PRESETS[0]!], zone: null, level: 1, hours: 8, seed: 1, autoGear: true, resumeMs: null };
   for (const arg of argv) {
     const match = /^--([a-z]+)=(.*)$/.exec(arg);
     if (match === null) {
@@ -77,6 +82,9 @@ function parseArgs(argv: readonly string[]): Options {
       case "gear":
         if (value !== "auto" && value !== "none") throw new Error("--gear must be auto or none");
         options.autoGear = value === "auto";
+        break;
+      case "resume":
+        options.resumeMs = parseIntArg(key, value, 1, 24 * 60) * 60_000;
         break;
       default:
         throw new Error(`unknown option --${key}`);
@@ -199,6 +207,7 @@ function simulate(options: Options, preset: BuildPreset): { lines: string[]; sum
   const clearTimes: number[] = [];
   const bossClearTimes: number[] = [];
   const zoneUnlockedAt: [ZoneId, number][] = [];
+  const mapTierUnlockedAt: [number, number][] = [];
   let encounterStartedAt: number | null = null;
   let deaths = 0;
   let xpGained = 0;
@@ -209,6 +218,8 @@ function simulate(options: Options, preset: BuildPreset): { lines: string[]; sum
   const currencyGained = Object.fromEntries(Object.keys(CURRENCIES).map((id) => [id, 0])) as Record<CurrencyId, number>;
   let overflow = 0;
   let upgrades = 0;
+  let lastResumeAt = 0;
+  let resumes = 0;
 
   for (let elapsed = 0; elapsed < totalMs; elapsed += CHUNK_MS) {
     const { events } = advance(state, Math.min(CHUNK_MS, totalMs - elapsed));
@@ -234,6 +245,9 @@ function simulate(options: Options, preset: BuildPreset): { lines: string[]; sum
         case "zone_unlocked":
           zoneUnlockedAt.push([event.zoneId, event.timeMs]);
           break;
+        case "map_tier_unlocked":
+          mapTierUnlockedAt.push([event.tier, event.timeMs]);
+          break;
         case "level_up":
           levelledUp = true;
           break;
@@ -251,6 +265,12 @@ function simulate(options: Options, preset: BuildPreset): { lines: string[]; sum
     }
     if (levelledUp) {
       applyPreset(state, preset);
+    }
+    const resumeMs = options.zone === null ? options.resumeMs : null;
+    if (resumeMs !== null && !state.settings.autoAdvance && state.simTimeMs - lastResumeAt >= resumeMs) {
+      dispatch(state, { type: "set_auto_advance", value: true });
+      lastResumeAt = state.simTimeMs;
+      resumes += 1;
     }
     if (options.autoGear && (lootArrived || levelledUp)) {
       upgrades += autoGear(state).length;
@@ -290,6 +310,7 @@ function simulate(options: Options, preset: BuildPreset): { lines: string[]; sum
       .map(([id, n]) => `${CURRENCIES[id as CurrencyId].name} ${perHour(n)}`)
       .join(", ")}`,
     `gear upgrades equipped: ${upgrades}`,
+    ...(options.resumeMs === null ? [] : [`auto-advance resumed:  ${resumes} times`]),
     `final DPS (single/pack): ${evaluation.singleTargetDps.toFixed(1)} / ${evaluation.packDps.toFixed(1)} (standardized estimate)`,
     `final EHP:              ${evaluation.ehp.toFixed(0)} (max life ${evaluation.defenses.maxLife}, armor ${Math.round(evaluation.defenses.armor)})`,
   ];
@@ -301,6 +322,12 @@ function simulate(options: Options, preset: BuildPreset): { lines: string[]; sum
     lines.push(``, `zones unlocked:`);
     for (const [zoneId, timeMs] of zoneUnlockedAt) {
       lines.push(`  ${formatDuration(timeMs).padStart(8)}  ${ZONES[zoneId].name}`);
+    }
+  }
+  if (mapTierUnlockedAt.length > 0) {
+    lines.push(``, `map tiers unlocked:`);
+    for (const [tier, timeMs] of mapTierUnlockedAt) {
+      lines.push(`  ${formatDuration(timeMs).padStart(8)}  Map Tier ${tier}`);
     }
   }
   const summary: Summary = {
