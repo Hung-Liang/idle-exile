@@ -2,7 +2,9 @@ import { INVENTORY_CAPACITY } from "../data/balance";
 import { CURRENCIES, type CurrencyId } from "../data/currencies";
 import { DROP_TABLES, SALVAGE_YIELDS, type DropTable } from "../data/drop-tables";
 import { ITEM_BASES, type ItemBaseDefinition, type ItemBaseId } from "../data/item-bases";
-import { generateAffixes } from "./affixes";
+import { uniqueAffixId, uniqueDropLevel, UNIQUES, type UniqueDefinition, type UniqueId } from "../data/uniques";
+import { generateAffixes, rollAffixValues } from "./affixes";
+import { getAffixDefinition } from "../data/affixes";
 import { EQUIP_SLOTS, formatItemId, itemBase, RARITIES, SLOT_ITEM_CLASS, type ItemInstance, type Rarity } from "./equipment";
 import type { GameEvent } from "./events";
 import { improvesBuild } from "./evaluate";
@@ -13,9 +15,14 @@ import { appendLog, type GameState } from "./state";
 const BASE_LIST: readonly ItemBaseDefinition[] = Object.values(ITEM_BASES);
 const CURRENCY_WEIGHTS: WeightedList<CurrencyId> = Object.values(CURRENCIES).map((c) => ({ id: c.id, weight: c.dropWeight }));
 
-const RARITY_LABEL: Record<Rarity, string> = { normal: "Normal", magic: "Magic", rare: "Rare" };
+const UNIQUE_LIST: readonly UniqueDefinition[] = Object.values(UNIQUES);
+
+const RARITY_LABEL: Record<Rarity, string> = { normal: "Normal", magic: "Magic", rare: "Rare", unique: "Unique" };
 
 export function describeItem(item: ItemInstance): string {
+  if (item.uniqueId !== undefined) {
+    return `${UNIQUES[item.uniqueId].name}, ${itemBase(item).name} (ilvl ${item.itemLevel})`;
+  }
   return `${RARITY_LABEL[item.rarity]} ${itemBase(item).name} (ilvl ${item.itemLevel})`;
 }
 
@@ -41,8 +48,35 @@ export function rollItemBase(itemLevel: number, rng: RngState): ItemBaseId {
   return pickWeighted(rng, bases.map((b) => ({ id: b.id, weight: b.weight })));
 }
 
+/** Uniques that can drop at this item level, by weight. */
+export function eligibleUniques(itemLevel: number): WeightedList<UniqueId> {
+  return UNIQUE_LIST.filter((def) => uniqueDropLevel(def) <= itemLevel).map((def) => ({ id: def.id, weight: def.weight }));
+}
+
 /** Allocates the next item id. The item is not added to the inventory. */
+export function createUniqueItem(state: GameState, uniqueId: UniqueId, itemLevel: number, rng: RngState): ItemInstance {
+  const def = UNIQUES[uniqueId];
+  const affixes = def.lines.map((_, i) => {
+    const affixId = uniqueAffixId(uniqueId, i);
+    return { affixId, values: rollAffixValues(getAffixDefinition(affixId), rng) };
+  });
+  const id = formatItemId(state.nextItemId);
+  state.nextItemId += 1;
+  return { id, baseId: def.baseId, itemLevel, rarity: "unique", uniqueId, affixes };
+}
+
+/**
+ * Allocates the next item id. The item is not added to the inventory. A unique roll with no
+ * unique available at this item level becomes a Rare.
+ */
 export function generateItem(state: GameState, itemLevel: number, rarity: Rarity, rng: RngState): ItemInstance {
+  if (rarity === "unique") {
+    const pool = eligibleUniques(itemLevel);
+    if (pool.length > 0) {
+      return createUniqueItem(state, pickWeighted(rng, pool), itemLevel, rng);
+    }
+    rarity = "rare";
+  }
   const baseId = rollItemBase(itemLevel, rng);
   const affixes = generateAffixes(ITEM_BASES[baseId].itemClass, itemLevel, rarity, rng);
   const id = formatItemId(state.nextItemId);

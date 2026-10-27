@@ -13,6 +13,7 @@
   --drop: #d9b54a;
   --magic: #7fa7e0;
   --rare: #e0c95a;
+  --unique: #d9824a;
   color-scheme: dark;
 }
 
@@ -79,6 +80,8 @@ h3 {
 .bar-life .bar-fill { background: var(--life); }
 .bar-progress .bar-fill { background: var(--progress); }
 .bar-monster .bar-fill { background: var(--monster); }
+.bar.elite-magic .bar-label { color: var(--magic); }
+.bar.elite-rare .bar-label { color: var(--rare); }
 
 .controls {
   display: flex;
@@ -161,6 +164,7 @@ input.ilvl { width: 7em; }
 .rarity-normal { color: var(--text); }
 .rarity-magic { color: var(--magic); }
 .rarity-rare { color: var(--rare); }
+.rarity-unique { color: var(--unique); }
 
 .inventory-grid {
   display: grid;

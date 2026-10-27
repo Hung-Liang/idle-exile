@@ -1,7 +1,7 @@
 import { MAP_MODIFIERS } from "../../data/map-modifiers";
 import { ZONES, type ZoneId } from "../../data/zones";
 import { LEVEL_GAP_PCT_PER_LEVEL } from "../../data/balance";
-import { monsterStats } from "../../game/combat";
+import { monsterDisplayName } from "../../game/encounters";
 import type { ActionResult, PlayerAction } from "../../game/engine";
 import { blockedAutoAdvance } from "../../game/progression";
 import { CURRENCIES, type CurrencyId } from "../../data/currencies";
@@ -173,7 +173,9 @@ export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResu
         const m = monsters[i];
         b.root.hidden = m === undefined;
         if (m !== undefined) {
-          const name = monsterStats(m.defId, m.level).name;
+          const name = monsterDisplayName(m);
+          b.root.classList.toggle("elite-magic", m.rank === "magic");
+          b.root.classList.toggle("elite-rare", m.rank === "rare");
           b.set(m.life, m.maxLife, m.alive ? `${name} ${m.life} / ${m.maxLife}` : `${name} — slain`);
         }
       });

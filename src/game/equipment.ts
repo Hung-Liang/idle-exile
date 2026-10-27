@@ -1,4 +1,5 @@
 import { ITEM_BASES, type ItemBaseDefinition, type ItemBaseId } from "../data/item-bases";
+import type { UniqueId } from "../data/uniques";
 import { affixModifierSpecs } from "./affixes";
 import { aggregate, applyScalar, DAMAGE_TYPES, type DamageType, type Modifier, type ModifierSpec } from "./modifiers";
 
@@ -19,7 +20,7 @@ export const SLOT_ITEM_CLASS: Record<EquipSlot, ItemClass> = {
   ring2: "ring",
 };
 
-export const RARITIES = ["normal", "magic", "rare"] as const;
+export const RARITIES = ["normal", "magic", "rare", "unique"] as const;
 export type Rarity = (typeof RARITIES)[number];
 
 export function rarityRank(rarity: Rarity): number {
@@ -39,7 +40,10 @@ export interface ItemInstance {
   baseId: ItemBaseId;
   itemLevel: number;
   rarity: Rarity;
+  /** For a unique, its lines in definition order (plan §8.9). */
   affixes: RolledAffix[];
+  /** Present exactly when `rarity === "unique"`. */
+  uniqueId?: UniqueId;
   /** Locked items cannot be salvaged. Absent = unlocked. */
   locked?: true;
 }

@@ -3,6 +3,7 @@ import type { CurrencyId } from "../data/currencies";
 import { CURRENCIES } from "../data/currencies";
 import { STARTING_WEAPON_BASE } from "../data/item-bases";
 import type { MapModifierId } from "../data/map-modifiers";
+import type { EliteRank, MonsterAffixId } from "../data/monster-affixes";
 import type { PassiveNodeId } from "../data/passive-tree";
 import type { SkillId } from "../data/skills";
 import type { StackId } from "../data/stacks";
@@ -33,6 +34,10 @@ export interface MonsterRuntime {
   maxLife: number;
   nextAttackAt: number;
   alive: boolean;
+  /** Absent = a normal monster (plan §10.6). */
+  rank?: EliteRank;
+  /** Present exactly when `rank` is. */
+  affixes?: MonsterAffixId[];
 }
 
 /** Live encounter data. Runtime only: omitted from saves and rebuilt by the first `advance()`. */

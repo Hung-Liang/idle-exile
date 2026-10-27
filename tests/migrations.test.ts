@@ -43,22 +43,36 @@ describe("migrateSave", () => {
     expect(migrateSave([]).ok).toBe(false);
   });
 
-  it("v1 → v2 adds the Graft Shard and the migrated save validates", () => {
+  it("v1 → current adds the Graft Shard and the migrated save validates", () => {
     // A v1 save: no graft_shard key and schema version 1.
     const state = createInitialState(3);
     state.inventory.currency.kindle_shard = 4;
     const raw = JSON.parse(serializeSave(state, { savedAt: 1, lastActiveAt: 1 }));
     delete raw.state.inventory.currency.graft_shard;
+    for (const id of ["tumult_shard", "sever_shard", "cleanse_shard"]) delete raw.state.inventory.currency[id];
     raw.schemaVersion = 1;
     raw.state.schemaVersion = 1;
     const parsed = parseSave(JSON.stringify(raw));
     if (!parsed.ok) throw new Error(parsed.error);
-    expect(parsed.state.schemaVersion).toBe(2);
-    expect(parsed.state.inventory.currency).toMatchObject({ kindle_shard: 4, graft_shard: 0 });
+    expect(parsed.state.schemaVersion).toBe(3);
+    expect(parsed.state.inventory.currency).toMatchObject({ kindle_shard: 4, graft_shard: 0, tumult_shard: 0 });
   });
 
-  it("v1 → v2 leaves a malformed save to the validator", () => {
+  it("v2 → v3 adds the Tumult, Sever and Cleanse Shards and the migrated save validates", () => {
+    const state = createInitialState(3);
+    state.inventory.currency.graft_shard = 2;
+    const raw = JSON.parse(serializeSave(state, { savedAt: 1, lastActiveAt: 1 }));
+    for (const id of ["tumult_shard", "sever_shard", "cleanse_shard"]) delete raw.state.inventory.currency[id];
+    raw.schemaVersion = 2;
+    raw.state.schemaVersion = 2;
+    const parsed = parseSave(JSON.stringify(raw));
+    if (!parsed.ok) throw new Error(parsed.error);
+    expect(parsed.state.schemaVersion).toBe(3);
+    expect(parsed.state.inventory.currency).toMatchObject({ graft_shard: 2, tumult_shard: 0, sever_shard: 0, cleanse_shard: 0 });
+  });
+
+  it("leaves a malformed save to the validator", () => {
     const raw = { schemaVersion: 1, state: { schemaVersion: 1, inventory: null } };
-    expect(migrateSave(raw)).toEqual({ ok: true, raw: { schemaVersion: 2, state: { schemaVersion: 2, inventory: null } } });
+    expect(migrateSave(raw)).toEqual({ ok: true, raw: { schemaVersion: 3, state: { schemaVersion: 3, inventory: null } } });
   });
 });

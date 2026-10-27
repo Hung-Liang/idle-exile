@@ -26,6 +26,8 @@ export interface ResolvedActivity {
   /** Map drop bonuses in percent (plan §9.1); 0 in campaign zones. */
   itemQuantityPct: number;
   itemRarityPct: number;
+  /** Increased chance for magic and rare monsters, in percent (plan §10.6). */
+  eliteChancePct: number;
 }
 
 const MAP_MONSTER_POOL: WeightedList<MonsterId> = (Object.keys(MONSTERS) as MonsterId[]).map((id) => ({ id, weight: 1 }));
@@ -48,6 +50,7 @@ export function resolveActivity(state: GameState): ResolvedActivity {
         playerMods: [],
         itemQuantityPct: 0,
         itemRarityPct: 0,
+        eliteChancePct: 0,
       };
     }
     case "map": {
@@ -64,6 +67,7 @@ export function resolveActivity(state: GameState): ResolvedActivity {
         playerMods: [],
         itemQuantityPct: tier.quantityPct,
         itemRarityPct: tier.rarityPct,
+        eliteChancePct: 0,
       };
       for (const id of activity.modifiers) {
         const mod = MAP_MODIFIERS[id];
@@ -73,6 +77,7 @@ export function resolveActivity(state: GameState): ResolvedActivity {
         resolved.packSizeWeights = mod.packSizeWeights ?? resolved.packSizeWeights;
         resolved.itemQuantityPct += mod.quantityPct;
         resolved.itemRarityPct += mod.rarityPct;
+        resolved.eliteChancePct += mod.eliteChancePct ?? 0;
       }
       return resolved;
     }

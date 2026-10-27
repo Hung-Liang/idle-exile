@@ -32,7 +32,7 @@ export const MOD_KINDS = ["flat", "increased", "more"] as const;
 /** Negative "more" values express "less". */
 export type ModKind = (typeof MOD_KINDS)[number];
 
-export type SourceKind = "item" | "passive" | "skill" | "support" | "map" | "base" | "level_gap";
+export type SourceKind = "item" | "passive" | "skill" | "support" | "map" | "base" | "level_gap" | "elite";
 
 export interface SourceRef {
   kind: SourceKind;

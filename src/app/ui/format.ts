@@ -1,4 +1,5 @@
-import { getAffixDefinition } from "../../data/affixes";
+import { getAffixDefinition, isUniqueAffix } from "../../data/affixes";
+import { UNIQUES } from "../../data/uniques";
 import { affixModifierSpecs } from "../../game/affixes";
 import { itemBase, resolveItem, type ItemInstance, type RolledAffix } from "../../game/equipment";
 import type { ModifierSpec } from "../../game/modifiers";
@@ -55,10 +56,11 @@ function describeModifierValue(mod: ModifierSpec): string {
   }
 }
 
-/** E.g. "[P T2] +40 maximum life". */
+/** E.g. "[P T2] +40 maximum life"; unique lines have no prefix/suffix tag. */
 export function describeAffix(affix: RolledAffix): string {
   const def = getAffixDefinition(affix.affixId);
   const text = affixModifierSpecs(affix).map(describeModifier).join(", ");
+  if (isUniqueAffix(affix.affixId)) return text;
   return `[${def.category === "prefix" ? "P" : "S"} T${def.tier}] ${text}`;
 }
 
@@ -82,5 +84,6 @@ export function describeBase(item: ItemInstance): string {
 }
 
 export function itemTitle(item: ItemInstance): string {
+  if (item.uniqueId !== undefined) return `${UNIQUES[item.uniqueId].name}, ${itemBase(item).name} (ilvl ${item.itemLevel})`;
   return `${itemBase(item).name} (ilvl ${item.itemLevel})`;
 }

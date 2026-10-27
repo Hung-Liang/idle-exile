@@ -56,20 +56,28 @@ export function levelGapMods(gap: number): Modifier[] {
 }
 
 /**
- * `mods` are the activity's monster modifiers (map modifiers): `life_max` and `damage` scale the
- * curves, and `gain_as_extra` adds that percentage of each hit as the given type, so the
- * damage split may then sum to more than 1.
+ * `mods` are the monster's modifiers (map modifiers, level gap, elite rank and affixes):
+ * `life_max`, `damage`, `attack_speed` and `armor` scale the base values, `resistance` adds to the
+ * archetype's resistances per type, and `gain_as_extra` adds that percentage of each hit as the
+ * given type, so the damage split may then sum to more than 1.
  */
 export function monsterStats(defId: string, level: number, mods: readonly Modifier[] = []): MonsterStats {
   const def = getMonsterDefinition(defId);
-  const aps = Math.min(MAX_ATTACKS_PER_SECOND, def.attacksPerSecond);
+  const aps = Math.min(MAX_ATTACKS_PER_SECOND, applyScalar(def.attacksPerSecond, aggregate(mods, "attack_speed", MONSTER_CONTEXT)));
   let damageSplit = def.damageSplit;
+  let resistances = def.resistances;
   if (mods.length > 0) {
     damageSplit = { ...def.damageSplit };
+    resistances = { ...def.resistances };
     for (const type of DAMAGE_TYPES) {
-      const extra = aggregate(mods, "gain_as_extra", { ...MONSTER_CONTEXT, damageType: type }).flat;
+      const typed = { ...MONSTER_CONTEXT, damageType: type };
+      const extra = aggregate(mods, "gain_as_extra", typed).flat;
       if (extra > 0) {
         damageSplit[type] = (damageSplit[type] ?? 0) + extra / 100;
+      }
+      const res = aggregate(mods, "resistance", typed).flat;
+      if (res !== 0) {
+        resistances[type] = (resistances[type] ?? 0) + res;
       }
     }
   }
@@ -79,8 +87,8 @@ export function monsterStats(defId: string, level: number, mods: readonly Modifi
     damagePerHit: applyScalar(monsterBaseDamage(level) * def.damageMult, aggregate(mods, "damage", MONSTER_CONTEXT)),
     damageSplit,
     attackIntervalMs: Math.round(1000 / aps),
-    armor: monsterBaseArmor(level) * def.armorMult,
-    resistances: def.resistances,
+    armor: Math.max(0, applyScalar(monsterBaseArmor(level) * def.armorMult, aggregate(mods, "armor", MONSTER_CONTEXT))),
+    resistances,
     xp: Math.round(monsterBaseXp(level) * def.xpMult),
   };
 }

@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 /** Raw, unvalidated save JSON. Migrations must not assume anything beyond `schemaVersion`. */
 export type RawSave = Record<string, unknown>;
@@ -27,6 +27,16 @@ export const MIGRATIONS: readonly Migration[] = [
       if (!isRecord(state) || !isRecord(state.inventory) || !isRecord(state.inventory.currency)) return raw;
       const inventory = { ...state.inventory, currency: { ...state.inventory.currency, graft_shard: 0 } };
       return { ...raw, state: { ...state, inventory } };
+    },
+  },
+  {
+    // v3 (plan v0.5.0): adds the Tumult, Sever and Cleanse Shard currencies.
+    from: 2,
+    migrate: (raw) => {
+      const state = raw.state;
+      if (!isRecord(state) || !isRecord(state.inventory) || !isRecord(state.inventory.currency)) return raw;
+      const currency = { ...state.inventory.currency, tumult_shard: 0, sever_shard: 0, cleanse_shard: 0 };
+      return { ...raw, state: { ...state, inventory: { ...state.inventory, currency } } };
     },
   },
 ];

@@ -44,9 +44,9 @@ describe("canApplyCurrency", () => {
     });
     const table = (target: ItemInstance) => CURRENCY_IDS.filter((id) => canApplyCurrency(target, id));
     expect(table(item("normal", 0))).toEqual(["kindle_shard"]);
-    expect(table(item("magic"))).toEqual(["flux_shard", "ascend_shard", "temper_shard"]);
-    expect(table(item("rare"))).toEqual(["temper_shard", "graft_shard"]);
-    expect(table(item("magic", 0))).toEqual(["flux_shard", "ascend_shard"]);
+    expect(table(item("magic"))).toEqual(["flux_shard", "ascend_shard", "temper_shard", "sever_shard", "cleanse_shard"]);
+    expect(table(item("rare"))).toEqual(["temper_shard", "graft_shard", "tumult_shard", "sever_shard", "cleanse_shard"]);
+    expect(table(item("magic", 0))).toEqual(["flux_shard", "ascend_shard", "cleanse_shard"]);
   });
 });
 
@@ -164,5 +164,58 @@ describe("use_currency", () => {
     dispatch(state, { type: "use_currency", currencyId: "ascend_shard", itemId: item.id });
     expect({ ...state.rng, craft: null }).toEqual({ ...before, craft: null });
     expect(state.rng.craft).not.toEqual(before.craft);
+  });
+});
+
+describe("v0.5.0 currencies", () => {
+  it("Tumult rerolls a Rare into a new Rare with 4–6 affixes", () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const { state, item } = setup("rare", seed);
+      const before = structuredClone(item.affixes);
+      expect(dispatch(state, { type: "use_currency", currencyId: "tumult_shard", itemId: item.id }).ok).toBe(true);
+      expect(item.rarity).toBe("rare");
+      expect(item.affixes.length).toBeGreaterThanOrEqual(4);
+      expect(item.affixes.length).toBeLessThanOrEqual(6);
+      expect(item.affixes).not.toEqual(before);
+      expect(state.inventory.currency.tumult_shard).toBe(0);
+      expectValid(state);
+    }
+  });
+
+  it("Sever removes exactly one existing affix and keeps the rest", () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const { state, item } = setup(seed % 2 === 0 ? "rare" : "magic", seed);
+      const before = item.affixes.map((a) => a.affixId);
+      const rarity = item.rarity;
+      expect(dispatch(state, { type: "use_currency", currencyId: "sever_shard", itemId: item.id }).ok).toBe(true);
+      const after = item.affixes.map((a) => a.affixId);
+      expect(after.length).toBe(before.length - 1);
+      expect(after.every((id) => before.includes(id))).toBe(true);
+      expect(item.rarity).toBe(rarity);
+      expectValid(state);
+    }
+  });
+
+  it("Cleanse turns a Magic or Rare item Normal", () => {
+    for (const rarity of ["magic", "rare"] as const) {
+      const { state, item } = setup(rarity);
+      expect(dispatch(state, { type: "use_currency", currencyId: "cleanse_shard", itemId: item.id }).ok).toBe(true);
+      expect(item.rarity).toBe("normal");
+      expect(item.affixes).toEqual([]);
+      expectValid(state);
+    }
+  });
+
+  it("only Temper is valid on a unique, and it keeps the unique's lines", () => {
+    const { state, item } = setup("unique", 3);
+    expect(item.rarity).toBe("unique");
+    expect(CURRENCY_IDS.filter((id) => canApplyCurrency(item, id))).toEqual(["temper_shard"]);
+    const ids = item.affixes.map((a) => a.affixId);
+    state.inventory.currency.temper_shard = 50;
+    for (let i = 0; i < 50; i++) {
+      expect(dispatch(state, { type: "use_currency", currencyId: "temper_shard", itemId: item.id }).ok).toBe(true);
+    }
+    expect(item.affixes.map((a) => a.affixId)).toEqual(ids);
+    expectValid(state);
   });
 });

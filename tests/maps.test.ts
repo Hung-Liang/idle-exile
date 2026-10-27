@@ -68,9 +68,34 @@ describe("map modifier effects", () => {
   it("monsters spawned in a map carry the modified life", () => {
     const state = inMap(1, ["fortified"]);
     const encounter = createEncounter(resolveActivity(state), MAX_LEVEL, createStreamState(5, "encounter"), 0);
-    for (const m of encounter.monsters) {
+    // Elites add their own life modifiers (plan §10.6).
+    const normal = encounter.monsters.filter((m) => m.rank === undefined);
+    expect(normal.length).toBeGreaterThan(0);
+    for (const m of normal) {
       expect(m.maxLife).toBe(Math.round(monsterBaseLife(m.level) * MONSTERS[m.defId as MonsterId].lifeMult * 1.4));
     }
+  });
+
+  it("v0.5.0 monster modifiers change attack speed, armor and resistances", () => {
+    const mods = (id: MapModifierId) => resolveActivity(inMap(1, [id])).monsterMods;
+    const plain = monsterStats("ember_wisp", 40);
+    expect(monsterStats("ember_wisp", 40, mods("frenzied")).attackIntervalMs).toBe(Math.round(plain.attackIntervalMs / 1.25));
+    expect(monsterStats("brute", 40, mods("plated")).armor).toBeCloseTo(monsterStats("brute", 40).armor * 2);
+    expect(monsterStats("ember_wisp", 40, mods("warded")).resistances).toEqual({ fire: 65, cold: 25, lightning: 25 });
+    expect(monsterStats("brute", 40, mods("toxic")).damageSplit).toEqual({ physical: 1, chaos: 0.2 });
+  });
+
+  it("v0.5.0 player modifiers lower life, damage, maximum resistances and recovery", () => {
+    const zone = computeDefenses(collectBuild(createInitialState(1)));
+    const defenses = (id: MapModifierId) => computeDefenses(collectBuild(inMap(1, [id])));
+    expect(defenses("enfeebling").maxLife).toBe(Math.floor(zone.maxLife * 0.8));
+    expect(defenses("brittle").resistanceMax.fire).toBe(zone.resistanceMax.fire - 10);
+    expect(defenses("unrelenting").lifeRecoveryOnClearPct).toBe(zone.lifeRecoveryOnClearPct - 10);
+  });
+
+  it("Teeming raises the activity's elite chance", () => {
+    expect(resolveActivity(inMap(1, [])).eliteChancePct).toBe(0);
+    expect(resolveActivity(inMap(1, ["teeming"])).eliteChancePct).toBe(100);
   });
 
   it("Draining lowers every player resistance by 15", () => {
@@ -239,5 +264,24 @@ describe("advance in maps", () => {
       for (const step of [1, 999, 1, 30_000, 88_999]) advance(split, step);
       expect(split).toEqual(whole);
     }
+  });
+});
+
+describe("life clamp on activity change", () => {
+  it("starting an Enfeebling map clamps full life to the lower max life", () => {
+    let checked = false;
+    for (let seed = 1; seed <= 200 && !checked; seed++) {
+      const state = createInitialState(seed);
+      state.progression.unlockedMapTier = 1;
+      advance(state, 0);
+      const full = state.character.life;
+      expect(dispatch(state, { type: "start_map", tier: 1 }).ok).toBe(true);
+      const activity = state.progression.activity;
+      if (activity.kind !== "map" || !activity.modifiers.includes("enfeebling")) continue;
+      expect(state.character.life).toBe(computeDefenses(collectBuild(state)).maxLife);
+      expect(state.character.life).toBeLessThan(full);
+      checked = true;
+    }
+    expect(checked).toBe(true);
   });
 });

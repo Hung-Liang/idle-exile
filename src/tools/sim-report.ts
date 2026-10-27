@@ -284,7 +284,7 @@ function simulate(options: Options, preset: BuildPreset, seed: number): { lines:
   let kills = 0;
   let levelledUp = false;
   let lootArrived = false;
-  const itemsByRarity: Record<Rarity, number> = { normal: 0, magic: 0, rare: 0 };
+  const itemsByRarity: Record<Rarity, number> = { normal: 0, magic: 0, rare: 0, unique: 0 };
   const currencyGained = Object.fromEntries(Object.keys(CURRENCIES).map((id) => [id, 0])) as Record<CurrencyId, number>;
   let overflow = 0;
   let upgrades = 0;

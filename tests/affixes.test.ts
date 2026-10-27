@@ -82,7 +82,8 @@ describe("generateAffixes", () => {
         fc.integer({ min: 0, max: 0xffffffff }),
         fc.constantFrom(...ITEM_CLASSES),
         fc.integer({ min: 1, max: 60 }),
-        fc.constantFrom(...RARITIES),
+        // Uniques never draw random affixes (plan §8.9).
+        fc.constantFrom(...RARITIES.filter((r) => r !== "unique")),
         (seed, itemClass, itemLevel, rarity) => {
           const affixes = generateAffixes(itemClass, itemLevel, rarity, createStreamState(seed, "loot"));
           expect(checkAffixes(affixes, itemClass, itemLevel, rarity)).toEqual([]);

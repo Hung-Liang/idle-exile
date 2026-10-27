@@ -1,5 +1,6 @@
 import type { ItemClass } from "../game/equipment";
-import type { DamageType, ModKind, StatId } from "../game/modifiers";
+import type { Condition, DamageType, ModKind, StatId, Tag } from "../game/modifiers";
+import { UNIQUE_AFFIXES } from "./uniques";
 
 export type AffixCategory = "prefix" | "suffix";
 
@@ -8,6 +9,10 @@ export interface AffixModifierDefinition {
   kind: ModKind;
   damageType?: DamageType;
   local?: boolean;
+  /** Used by unique lines only. */
+  tags?: Tag[];
+  /** Used by unique lines only. */
+  condition?: Condition;
   /**
    * Integer roll range. For flat `added_damage` a single value `v` is rolled and the
    * modifier becomes `[v, round(v × ADDED_DAMAGE_MAX_FACTOR)]` (plan §8.5).
@@ -204,8 +209,14 @@ export const AFFIXES: Record<string, AffixDefinition> = Object.fromEntries(
   GROUPS.flatMap(expandGroup).map((affix) => [affix.id, affix]),
 );
 
+/** Whether the id names a unique item line rather than a random affix. */
+export function isUniqueAffix(id: string): boolean {
+  return Object.hasOwn(UNIQUE_AFFIXES, id);
+}
+
+/** Random affixes and unique lines. */
 export function getAffixDefinition(id: string): AffixDefinition {
-  const def = AFFIXES[id];
+  const def = Object.hasOwn(AFFIXES, id) ? AFFIXES[id] : UNIQUE_AFFIXES[id];
   if (def === undefined) {
     throw new Error(`unknown affix "${id}"`);
   }

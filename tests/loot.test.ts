@@ -40,7 +40,7 @@ describe("generateItem", () => {
       fc.property(
         fc.integer({ min: 0, max: 0xffffffff }),
         fc.integer({ min: 1, max: 60 }),
-        fc.constantFrom("normal", "magic", "rare" as const),
+        fc.constantFrom("normal", "magic", "rare", "unique" as const),
         (seed, itemLevel, rarity) => {
           const state = createInitialState(seed);
           const item = generateItem(state, itemLevel, rarity, state.rng.loot);

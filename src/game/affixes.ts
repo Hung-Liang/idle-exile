@@ -94,6 +94,8 @@ export function affixModifierSpecs(affix: RolledAffix): ModifierSpec[] {
     const spec: ModifierSpec = { stat: mod.stat, kind: mod.kind, value: modifierValue(mod, affix.values[i]!) };
     if (mod.damageType !== undefined) spec.damageType = mod.damageType;
     if (mod.local === true) spec.local = true;
+    if (mod.tags !== undefined) spec.tags = [...mod.tags];
+    if (mod.condition !== undefined) spec.condition = { ...mod.condition };
     return spec;
   });
 }

@@ -4,6 +4,7 @@ import { addRandomAffix, canAddAffix, generateAffixes, rollAffixValues } from ".
 import { itemBase, type ItemId, type ItemInstance } from "./equipment";
 import type { GameEvent } from "./events";
 import { describeItem } from "./loot";
+import { nextInt } from "./random";
 import { clampLifeToMax } from "./stats";
 import { appendLog, type GameState } from "./state";
 
@@ -21,6 +22,12 @@ export function canApplyCurrency(item: ItemInstance, currencyId: CurrencyId): bo
       return item.rarity !== "normal" && item.affixes.length > 0;
     case "graft_shard":
       return item.rarity === "rare" && canAddAffix(item.affixes, itemBase(item).itemClass, item.itemLevel, "rare");
+    case "tumult_shard":
+      return item.rarity === "rare";
+    case "sever_shard":
+      return (item.rarity === "magic" || item.rarity === "rare") && item.affixes.length > 0;
+    case "cleanse_shard":
+      return item.rarity === "magic" || item.rarity === "rare";
   }
 }
 
@@ -46,6 +53,16 @@ function applyCurrency(state: GameState, item: ItemInstance, currencyId: Currenc
       return;
     case "graft_shard":
       addRandomAffix(item.affixes, itemClass, item.itemLevel, "rare", rng);
+      return;
+    case "tumult_shard":
+      item.affixes = generateAffixes(itemClass, item.itemLevel, "rare", rng);
+      return;
+    case "sever_shard":
+      item.affixes.splice(nextInt(rng, 0, item.affixes.length - 1), 1);
+      return;
+    case "cleanse_shard":
+      item.rarity = "normal";
+      item.affixes = [];
       return;
   }
 }

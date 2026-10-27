@@ -102,7 +102,7 @@ describe("simulateOffline", () => {
     for (const [id, n] of Object.entries(after.currency)) {
       expect(summary.currencyGained[id as keyof typeof after.currency]).toBe(n - before.currency[id as keyof typeof before.currency]);
     }
-    const kept = summary.itemsKept.normal + summary.itemsKept.magic + summary.itemsKept.rare;
+    const kept = Object.values(summary.itemsKept).reduce((a, b) => a + b, 0);
     expect(kept).toBe(after.items.length - before.items.length);
     expect(summary.encountersCleared).toBeGreaterThan(0);
     expect(summary.budgetExhausted).toBe(false);

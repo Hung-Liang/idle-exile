@@ -1,5 +1,5 @@
 import { INVENTORY_CAPACITY, LEVEL_GAP_MAX_LEVELS, LOG_CAPACITY, MAX_LEVEL, MAX_MAP_TIER } from "../data/balance";
-import { AFFIXES } from "../data/affixes";
+import { AFFIXES, getAffixDefinition } from "../data/affixes";
 import { CURRENCIES } from "../data/currencies";
 import { AFFIX_CATEGORY_LIMITS } from "../data/drop-tables";
 import { ITEM_BASES } from "../data/item-bases";
@@ -9,6 +9,7 @@ import { PASSIVE_NODES, PASSIVE_ROOT } from "../data/passive-tree";
 import { SKILLS } from "../data/skills";
 import { STACKS } from "../data/stacks";
 import { SUPPORTS } from "../data/supports";
+import { uniqueAffixId, UNIQUES, type UniqueId } from "../data/uniques";
 import { ZONES } from "../data/zones";
 import { EQUIP_SLOTS, RARITIES, SLOT_ITEM_CLASS } from "./equipment";
 import { CURRENT_SCHEMA_VERSION } from "./migrations";
@@ -190,6 +191,39 @@ function checkCharacter(c: Checker, v: unknown, items: Obj | null): void {
   c.unique("character.equipment", equipped);
 }
 
+function checkAffixValues(c: Checker, path: string, values: unknown, modifiers: readonly { range: [number, number] }[]): void {
+  if (!Array.isArray(values) || values.length !== modifiers.length) {
+    c.fail(`${path}.values`, `expected ${modifiers.length} values`);
+    return;
+  }
+  modifiers.forEach((mod, j) => c.intInRange(`${path}.values[${j}]`, values[j], mod.range[0], mod.range[1]));
+}
+
+/** Plan §8.9: a unique carries exactly its definition's lines, in order, on its own base. */
+function checkUniqueLines(c: Checker, path: string, item: Obj): void {
+  if (!has(UNIQUES, item.uniqueId)) {
+    c.fail(`${path}.uniqueId`, `unknown unique ${JSON.stringify(item.uniqueId)}`);
+    return;
+  }
+  const def = UNIQUES[item.uniqueId as UniqueId];
+  if (item.baseId !== def.baseId) c.fail(`${path}.baseId`, `must be ${def.baseId} for ${def.id}`);
+  if (!c.arr(`${path}.affixes`, item.affixes)) return;
+  if (item.affixes.length !== def.lines.length) {
+    c.fail(`${path}.affixes`, `expected ${def.lines.length} unique lines`);
+    return;
+  }
+  item.affixes.forEach((affix, i) => {
+    const ap = `${path}.affixes[${i}]`;
+    if (!c.obj(ap, affix)) return;
+    const expected = uniqueAffixId(def.id, i);
+    if (affix.affixId !== expected) {
+      c.fail(`${ap}.affixId`, `expected ${expected}`);
+      return;
+    }
+    checkAffixValues(c, ap, affix.values, getAffixDefinition(expected).modifiers);
+  });
+}
+
 function checkItem(c: Checker, path: string, key: string, item: unknown): number | null {
   if (!c.obj(path, item)) return null;
   const match = ITEM_ID_PATTERN.exec(key);
@@ -199,7 +233,12 @@ function checkItem(c: Checker, path: string, key: string, item: unknown): number
   c.intInRange(`${path}.itemLevel`, item.itemLevel, 1, 1000);
   if (!RARITIES.includes(item.rarity as never)) c.fail(`${path}.rarity`, "unknown rarity");
   if (item.locked !== undefined && item.locked !== true) c.fail(`${path}.locked`, "expected true when present");
-  if (c.arr(`${path}.affixes`, item.affixes)) {
+  if (item.rarity === "unique") {
+    checkUniqueLines(c, path, item);
+  } else if (item.uniqueId !== undefined) {
+    c.fail(`${path}.uniqueId`, "only allowed on unique items");
+  }
+  if (item.rarity !== "unique" && c.arr(`${path}.affixes`, item.affixes)) {
     const base = has(ITEM_BASES, item.baseId) ? ITEM_BASES[item.baseId as keyof typeof ITEM_BASES] : null;
     const used = { prefix: 0, suffix: 0 };
     const groups: string[] = [];
@@ -215,12 +254,7 @@ function checkItem(c: Checker, path: string, key: string, item: unknown): number
       groups.push(def.group);
       if (base !== null && !def.itemClasses.includes(base.itemClass)) c.fail(ap, `not allowed on ${base.itemClass}`);
       if (isNonNegInt(item.itemLevel) && def.requiredItemLevel > item.itemLevel) c.fail(ap, "requires a higher item level");
-      const values = affix.values;
-      if (!Array.isArray(values) || values.length !== def.modifiers.length) {
-        c.fail(`${ap}.values`, `expected ${def.modifiers.length} values`);
-        return;
-      }
-      def.modifiers.forEach((mod, j) => c.intInRange(`${ap}.values[${j}]`, values[j], mod.range[0], mod.range[1]));
+      checkAffixValues(c, ap, affix.values, def.modifiers);
     });
     c.unique(`${path}.affixes`, groups);
     if (RARITIES.includes(item.rarity as never)) {

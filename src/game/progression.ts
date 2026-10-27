@@ -4,7 +4,7 @@ import { MAP_MODIFIER_COUNT_WEIGHTS, mapTier } from "../data/maps";
 import { ZONE_ORDER, ZONES, type ZoneId } from "../data/zones";
 import type { GameEvent } from "./events";
 import { nextInt, weightedIndex, type RngState } from "./random";
-import { computeMaxLife } from "./stats";
+import { clampLifeToMax, computeMaxLife } from "./stats";
 import { appendLog, supportSlotCount, type GameState } from "./state";
 
 export function xpMultiplier(characterLevel: number, monsterLevel: number): number {
@@ -228,6 +228,8 @@ export function travelToZone(state: GameState, zoneId: ZoneId, events: GameEvent
   }
   setZoneActivity(state, zoneId, events);
   leaveEncounter(state);
+  // Activity player mods (e.g. Enfeebling) change max life.
+  clampLifeToMax(state);
   appendLog(state, "info", `Travelled to ${ZONES[zoneId].name}.`);
   return true;
 }
@@ -239,5 +241,6 @@ export function startMap(state: GameState, tier: number, events: GameEvent[]): b
   }
   startMapRun(state, tier, events);
   leaveEncounter(state);
+  clampLifeToMax(state);
   return true;
 }

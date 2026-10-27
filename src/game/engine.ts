@@ -7,7 +7,8 @@ import { STACKS, type StackId } from "../data/stacks";
 import type { ZoneId } from "../data/zones";
 import { mitigateHit, monsterStats, resolveHit, rollAttack, rollMonsterHit, type MonsterStats } from "./combat";
 import { useCurrency, type CraftError } from "./crafting";
-import { createEncounter, encounterMonsterMods } from "./encounters";
+import { ELITE_RANKS } from "../data/monster-affixes";
+import { createEncounter, monsterDisplayName, monsterModifiers } from "./encounters";
 import type { EquipSlot, ItemId } from "./equipment";
 import { nextScheduledEvent, type GameEvent } from "./events";
 import { equipItem, salvageItem, salvageUnlocked, setItemLocked, unequipSlot, type InventoryError } from "./inventory";
@@ -83,10 +84,14 @@ function refreshBuild(sim: Sim): void {
   sim.defenses = computeDefenses(sim.build);
 }
 
-/** Activity changes (boss kill, retreat) can change player mods, so the build is refreshed too. */
+/**
+ * Activity changes (boss kill, retreat) can change player mods, so the build is refreshed too,
+ * and life is clamped in case the new mods lower max life (e.g. Enfeebling).
+ */
 function refreshActivity(sim: Sim): void {
   sim.activity = resolveActivity(sim.state);
   refreshBuild(sim);
+  sim.state.character.life = Math.min(sim.state.character.life, sim.defenses.maxLife);
 }
 
 function startEncounter(sim: Sim): EncounterRuntime {
@@ -107,7 +112,8 @@ function stackIsReferenced(build: PlayerBuild, id: StackId): boolean {
 }
 
 function encounterMonsterStats(sim: Sim, encounter: EncounterRuntime, monster: MonsterRuntime): MonsterStats {
-  return monsterStats(monster.defId, monster.level, encounterMonsterMods(sim.activity.monsterMods, encounter.levelGap));
+  const stats = monsterStats(monster.defId, monster.level, monsterModifiers(sim.activity.monsterMods, encounter.levelGap, monster));
+  return monster.rank === undefined ? stats : { ...stats, name: monsterDisplayName(monster) };
 }
 
 function onMonsterKilled(sim: Sim, encounter: EncounterRuntime, monsterIndex: number): void {
@@ -123,7 +129,8 @@ function onMonsterKilled(sim: Sim, encounter: EncounterRuntime, monsterIndex: nu
     }
   }
 
-  const xp = Math.round(stats.xp * xpMultiplier(state.character.level, monster.level));
+  const rank = monster.rank === undefined ? undefined : ELITE_RANKS[monster.rank];
+  const xp = Math.round(stats.xp * (rank?.xpMult ?? 1) * xpMultiplier(state.character.level, monster.level));
   const levelBefore = state.character.level;
   grantXp(state, xp, sim.events);
   if (state.character.level !== levelBefore) {
@@ -136,7 +143,10 @@ function onMonsterKilled(sim: Sim, encounter: EncounterRuntime, monsterIndex: nu
     state,
     monster.level,
     encounter.isBoss,
-    { quantityPct: sim.activity.itemQuantityPct, rarityPct: sim.activity.itemRarityPct },
+    {
+      quantityPct: sim.activity.itemQuantityPct + (rank?.quantityPct ?? 0),
+      rarityPct: sim.activity.itemRarityPct + (rank?.rarityPct ?? 0),
+    },
     sim.events,
   );
 }
@@ -148,7 +158,8 @@ function clearEncounter(sim: Sim, encounter: EncounterRuntime): void {
   state.progression.consecutiveDeaths = 0;
 
   const maxLife = sim.defenses.maxLife;
-  const recoveryPct = TRANSITION_LIFE_RECOVERY_PCT + sim.defenses.lifeRecoveryOnClearPct;
+  // Map modifiers can lower recovery; it never drains life.
+  const recoveryPct = Math.max(0, TRANSITION_LIFE_RECOVERY_PCT + sim.defenses.lifeRecoveryOnClearPct);
   state.character.life = Math.min(maxLife, state.character.life + Math.floor((maxLife * recoveryPct) / 100));
 
   sim.events.push({ type: "encounter_cleared", timeMs: state.simTimeMs, index: encounter.index, isBoss: encounter.isBoss });
