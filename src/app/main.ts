@@ -1,8 +1,10 @@
-import { dispatch, type PlayerAction } from "../game/engine";
+import { dispatch, type ActionResult, type PlayerAction } from "../game/engine";
 import { loadSave, writeSave } from "../game/save";
 import { startLoop, type LoopHandle } from "./loop";
 import { createCharacterPanel } from "./ui/character-panel";
 import { createCombatPanel } from "./ui/combat-panel";
+import { el } from "./ui/dom";
+import { createInventoryPanel } from "./ui/inventory-panel";
 import "./style.css";
 
 const AUTOSAVE_INTERVAL_MS = 30_000;
@@ -31,21 +33,39 @@ function save(): void {
   }
 }
 
-function onAction(action: PlayerAction): void {
+function onAction(action: PlayerAction): ActionResult {
   const result = dispatch(state, action);
   if (!result.ok) {
     console.warn(`action ${action.type} rejected: ${result.reason}`);
   }
   render();
+  return result;
 }
 
 const characterPanel = createCharacterPanel();
-const combatPanel = createCombatPanel(onAction);
-root.replaceChildren(characterPanel.root, combatPanel.root);
+const views = { combat: createCombatPanel(onAction), inventory: createInventoryPanel(onAction) };
+type View = keyof typeof views;
+let view: View = "combat";
+
+const navButtons = (Object.keys(views) as View[]).map((name) => {
+  const b = el("button", undefined, name === "combat" ? "Combat" : "Inventory");
+  b.type = "button";
+  b.addEventListener("click", () => {
+    view = name;
+    render();
+  });
+  return [name, b] as const;
+});
+const nav = el("nav", "nav", ...navButtons.map(([, b]) => b));
+const viewRoot = el("div", "view");
+root.replaceChildren(nav, characterPanel.root, viewRoot);
 
 function render(): void {
   characterPanel.render(state);
-  combatPanel.render(state);
+  for (const [name, b] of navButtons) b.classList.toggle("active", name === view);
+  const panel = views[view];
+  if (viewRoot.firstChild !== panel.root) viewRoot.replaceChildren(panel.root);
+  panel.render(state);
 }
 
 let loop: LoopHandle | null = null;

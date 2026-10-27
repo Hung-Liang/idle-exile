@@ -1,6 +1,6 @@
 import { ZONES, type ZoneId } from "../../data/zones";
 import { monsterStats } from "../../game/combat";
-import type { PlayerAction } from "../../game/engine";
+import type { ActionResult, PlayerAction } from "../../game/engine";
 import type { GameState } from "../../game/state";
 import { resolveActivity } from "../../game/zones";
 import type { Panel } from "./character-panel";
@@ -23,7 +23,7 @@ function checkbox(label: string, onChange: (checked: boolean) => void): { root: 
   return { root: el("label", "toggle", input, ` ${label}`), input };
 }
 
-export function createCombatPanel(dispatch: (action: PlayerAction) => void): Panel {
+export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResult): Panel {
   const zoneTitle = el("h2");
   const progress = bar("progress");
   const status = el("div", "muted");
