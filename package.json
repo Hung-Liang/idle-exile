@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "sim": "vite build --ssr src/tools/sim-report.ts --outDir .sim-build --emptyOutDir --logLevel error && node .sim-build/sim-report.js"
   },
   "devDependencies": {
     "fast-check": "^4.10.2",
