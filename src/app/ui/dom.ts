@@ -28,3 +28,14 @@ export function bar(kind: string): Bar {
     },
   };
 }
+
+export function button(label: string, onClick: () => void, disabledReason?: string): HTMLButtonElement {
+  const b = el("button", undefined, label);
+  b.type = "button";
+  b.addEventListener("click", onClick);
+  if (disabledReason !== undefined) {
+    b.disabled = true;
+    b.title = disabledReason;
+  }
+  return b;
+}

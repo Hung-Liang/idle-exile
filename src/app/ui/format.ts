@@ -8,13 +8,21 @@ function fmt(n: number): string {
 }
 
 export function describeModifier(mod: ModifierSpec): string {
+  let text = describeModifierValue(mod);
+  if (mod.perStack !== undefined) text += ` per ${mod.perStack} stack`;
+  if (mod.condition?.kind === "enemy_life_below_pct") text += ` against enemies below ${mod.condition.value}% life`;
+  return text;
+}
+
+function describeModifierValue(mod: ModifierSpec): string {
   const type = mod.damageType === undefined ? "" : `${mod.damageType} `;
   const v = mod.value;
   if (Array.isArray(v)) {
     return mod.stat === "added_damage" ? `Adds ${v[0]}–${v[1]} ${type}damage` : `${mod.stat} ${v[0]}–${v[1]}`;
   }
   const signed = `${v >= 0 ? "+" : ""}${fmt(v)}`;
-  const scaled = mod.kind === "increased" ? `${fmt(v)}% increased` : mod.kind === "more" ? `${fmt(v)}% more` : signed;
+  const scaled =
+    mod.kind === "increased" ? `${fmt(v)}% increased` : mod.kind === "more" ? (v >= 0 ? `${fmt(v)}% more` : `${fmt(-v)}% less`) : signed;
   switch (mod.stat) {
     case "damage":
       return `${scaled} ${type}damage`;
@@ -32,6 +40,16 @@ export function describeModifier(mod: ModifierSpec): string {
       return `${signed}% ${type}resistance`;
     case "life_on_hit":
       return `${signed} life on hit`;
+    case "resistance_max":
+      return `${signed}% maximum ${type}resistance`;
+    case "conversion":
+      return `${fmt(v)}% of physical damage converted to ${type.trim()}`;
+    case "gain_as_extra":
+      return `Gain ${fmt(v)}% of physical damage as extra ${type.trim()}`;
+    case "penetration":
+      return `${type}damage penetrates ${fmt(v)}% resistance`;
+    case "life_recovery_on_clear":
+      return `Recover ${fmt(v)}% of maximum life when an encounter is cleared`;
     default:
       return `${scaled} ${type}${mod.stat.replaceAll("_", " ")}`;
   }

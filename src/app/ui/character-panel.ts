@@ -1,5 +1,6 @@
 import { xpToNextLevel, MAX_LEVEL } from "../../data/balance";
 import { SKILLS } from "../../data/skills";
+import { SUPPORTS } from "../../data/supports";
 import { DAMAGE_TYPES } from "../../game/modifiers";
 import { evaluateState } from "../../game/evaluate";
 import type { GameState } from "../../game/state";
@@ -32,7 +33,8 @@ export function createCharacterPanel(): Panel {
       const evaluation = evaluateState(state);
       const stats = evaluation.defenses;
       title.textContent = `Exile — Level ${character.level}`;
-      skill.textContent = `Skill: ${SKILLS[character.activeSkillId].name}`;
+      const supports = character.supportIds.flatMap((id) => (id === null ? [] : [SUPPORTS[id].name]));
+      skill.textContent = `Skill: ${[SKILLS[character.activeSkillId].name, ...supports].join(" + ")}`;
       if (character.level >= MAX_LEVEL) {
         xp.set(1, 1, "Max level");
       } else {

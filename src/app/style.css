@@ -204,3 +204,36 @@ input.ilvl { width: 7em; }
 .delta-up { color: var(--level); }
 .delta-down { color: var(--death); }
 .error { color: var(--death); min-height: 1.4em; }
+
+.grid-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 4px 0;
+}
+
+.grid-table th,
+.grid-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.grid-table td.num { text-align: right; white-space: nowrap; }
+.grid-table td button + button { margin-left: 4px; }
+.active-row td:first-child { color: var(--drop); }
+
+.passive-branches {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.passive-allocated { color: var(--level); }
+.passive-reachable { color: var(--text); }
+.passive-locked { color: var(--muted); }
+
+@media (max-width: 720px) {
+  .passive-branches { grid-template-columns: minmax(0, 1fr); }
+  .grid-table { display: block; overflow-x: auto; }
+}

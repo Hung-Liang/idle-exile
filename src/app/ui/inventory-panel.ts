@@ -2,30 +2,16 @@ import { INVENTORY_CAPACITY } from "../../data/balance";
 import { CURRENCIES, type CurrencyId } from "../../data/currencies";
 import type { ActionResult, PlayerAction } from "../../game/engine";
 import { EQUIP_SLOTS, itemBase, RARITIES, slotsForClass, type EquipSlot, type ItemId, type Rarity } from "../../game/equipment";
-import { compareEquip, evaluateState, withEquipment, type BuildEvaluation } from "../../game/evaluate";
-import { DAMAGE_TYPES, STAT_IDS, type StatId } from "../../game/modifiers";
+import { compareEquip, evaluateState, withEquipment } from "../../game/evaluate";
+import { STAT_IDS, type StatId } from "../../game/modifiers";
 import { defaultLootFilter, type GameState, type LootFilterRule } from "../../game/state";
 import { resolveActivity } from "../../game/zones";
 import type { Panel } from "./character-panel";
-import { el } from "./dom";
+import { comparisonTable } from "./compare";
+import { button, el } from "./dom";
 import { describeAffix, describeBase, itemTitle } from "./format";
 
 type Dispatch = (action: PlayerAction) => ActionResult;
-
-const ESTIMATE_TOOLTIP = (level: number) =>
-  `Standardized estimate, not a combat guarantee. Reference: monster level ${level}, 0 armor, 0 resistance, ` +
-  `3-target pack, damage mix 40% physical / 15% each fire, cold, lightning, chaos.`;
-
-function button(label: string, onClick: () => void, disabledReason?: string): HTMLButtonElement {
-  const b = el("button", undefined, label);
-  b.type = "button";
-  b.addEventListener("click", onClick);
-  if (disabledReason !== undefined) {
-    b.disabled = true;
-    b.title = disabledReason;
-  }
-  return b;
-}
 
 function select<T extends string>(options: readonly (readonly [T, string])[], value: T): HTMLSelectElement {
   const s = el("select");
@@ -36,54 +22,6 @@ function select<T extends string>(options: readonly (readonly [T, string])[], va
     s.append(o);
   }
   return s;
-}
-
-interface StatRow {
-  label: string;
-  get: (e: BuildEvaluation) => number;
-  digits: number;
-  estimate?: boolean;
-  suffix?: string;
-}
-
-const STAT_ROWS: StatRow[] = [
-  { label: "Single-target DPS", get: (e) => e.singleTargetDps, digits: 1, estimate: true },
-  { label: "Pack DPS", get: (e) => e.packDps, digits: 1, estimate: true },
-  { label: "EHP", get: (e) => e.ehp, digits: 0, estimate: true },
-  { label: "Max life", get: (e) => e.defenses.maxLife, digits: 0 },
-  { label: "Armor", get: (e) => e.defenses.armor, digits: 0 },
-  ...DAMAGE_TYPES.filter((t) => t !== "physical").map(
-    (t): StatRow => ({ label: `${t[0]!.toUpperCase()}${t.slice(1)} res`, get: (e) => e.defenses.resistances[t], digits: 0, suffix: "%" }),
-  ),
-  { label: "Attacks / s", get: (e) => e.attacksPerSecond, digits: 2 },
-  { label: "Crit chance", get: (e) => e.critChance, digits: 1, suffix: "%" },
-  { label: "Crit multiplier", get: (e) => e.critMultiplier, digits: 0, suffix: "%" },
-];
-
-function comparisonTable(current: BuildEvaluation, candidate: BuildEvaluation, monsterLevel: number): HTMLElement {
-  const rows = STAT_ROWS.map((row) => {
-    const a = row.get(current);
-    const b = row.get(candidate);
-    const delta = b - a;
-    const threshold = 0.5 * 10 ** -row.digits;
-    const cls = delta > threshold ? "delta-up" : delta < -threshold ? "delta-down" : "muted";
-    const label = el("td", undefined, row.estimate ? `${row.label}*` : row.label);
-    if (row.estimate) label.title = ESTIMATE_TOOLTIP(monsterLevel);
-    const s = row.suffix ?? "";
-    return el(
-      "tr",
-      undefined,
-      label,
-      el("td", undefined, `${a.toFixed(row.digits)}${s}`),
-      el("td", undefined, `${b.toFixed(row.digits)}${s}`),
-      el("td", cls, `${delta >= 0 ? "+" : ""}${delta.toFixed(row.digits)}${s}`),
-    );
-  });
-  const head = el("tr", undefined, el("th", undefined, ""), el("th", undefined, "Now"), el("th", undefined, "With item"), el("th", undefined, "Δ"));
-  const table = el("table", "compare", el("thead", undefined, head), el("tbody", undefined, ...rows));
-  const note = el("div", "muted", "* standardized estimate (hover for assumptions)");
-  note.title = ESTIMATE_TOOLTIP(monsterLevel);
-  return el("div", undefined, table, note);
 }
 
 function describeRule(rule: LootFilterRule): string {
@@ -171,12 +109,12 @@ export function createInventoryPanel(dispatch: Dispatch): Panel {
             el("ul", undefined, el("li", "muted", "Equipped"), ...oldLines.map((l) => el("li", newTexts.has(strip(l)) ? undefined : "delta-down", `− ${l}`))),
             el("ul", undefined, el("li", "muted", "Candidate"), ...newLines.map((l) => el("li", oldTexts.has(strip(l)) ? undefined : "delta-up", `+ ${l}`))),
           ),
-          comparisonTable(current, candidate, monsterLevel),
+          comparisonTable(current, candidate, monsterLevel, "With item"),
         );
       }
     } else {
       const without = evaluateState(withEquipment(state, equippedIn, null));
-      box.append(el("h3", undefined, "Contribution (now vs. slot empty)"), comparisonTable(without, evaluateState(state), monsterLevel));
+      box.append(el("h3", undefined, "Contribution (now vs. slot empty)"), comparisonTable(without, evaluateState(state), monsterLevel, "With item"));
     }
     return box;
   }

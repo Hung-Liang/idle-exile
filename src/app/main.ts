@@ -5,6 +5,7 @@ import { createCharacterPanel } from "./ui/character-panel";
 import { createCombatPanel } from "./ui/combat-panel";
 import { el } from "./ui/dom";
 import { createInventoryPanel } from "./ui/inventory-panel";
+import { createSkillPanel } from "./ui/skill-panel";
 import "./style.css";
 
 const AUTOSAVE_INTERVAL_MS = 30_000;
@@ -43,12 +44,13 @@ function onAction(action: PlayerAction): ActionResult {
 }
 
 const characterPanel = createCharacterPanel();
-const views = { combat: createCombatPanel(onAction), inventory: createInventoryPanel(onAction) };
+const views = { combat: createCombatPanel(onAction), inventory: createInventoryPanel(onAction), skills: createSkillPanel(onAction) };
 type View = keyof typeof views;
+const VIEW_LABELS: Record<View, string> = { combat: "Combat", inventory: "Inventory", skills: "Skills" };
 let view: View = "combat";
 
 const navButtons = (Object.keys(views) as View[]).map((name) => {
-  const b = el("button", undefined, name === "combat" ? "Combat" : "Inventory");
+  const b = el("button", undefined, VIEW_LABELS[name]);
   b.type = "button";
   b.addEventListener("click", () => {
     view = name;
