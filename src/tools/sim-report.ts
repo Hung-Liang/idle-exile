@@ -1,17 +1,17 @@
-// Headless balance simulation (plan §14.4), v1: one fixed build preset.
+// Headless balance simulation (plan §14.4) with fixed build presets.
 //
-//   npm run sim -- [--zone=<id>] [--level=<n>] [--hours=<n>] [--seed=<n>] [--gear=auto|none]
+//   npm run sim -- [--preset=<id>|all] [--zone=<id>] [--level=<n>] [--hours=<n>] [--seed=<n>] [--gear=auto|none]
 //
+// --preset=all runs every preset with the same options and prints a side-by-side summary.
 // Without --zone it runs the campaign from the start with auto-advance on and reports when
 // each zone was unlocked. With --zone it farms that zone (auto-advance and auto-retreat off).
 // With --gear=auto (default) dropped items are equipped by a tool-only heuristic: equip when
 // DPS or EHP improves without lowering the other by more than 5%. Unequipped items are then
 // salvaged so the inventory never overflows.
 
-import { MAX_LEVEL, PASSIVE_POINT_EVERY_LEVELS, xpToNextLevel } from "../data/balance";
+import { MAX_LEVEL, xpToNextLevel } from "../data/balance";
 import { CURRENCIES, type CurrencyId } from "../data/currencies";
 import { SKILLS } from "../data/skills";
-import { SUPPORTS } from "../data/supports";
 import { ZONE_ORDER, ZONES, type ZoneId } from "../data/zones";
 import { advance, dispatch } from "../game/engine";
 import { itemBase, RARITIES, slotsForClass, type EquipSlot, type Rarity } from "../game/equipment";
@@ -20,12 +20,13 @@ import { describeItem } from "../game/loot";
 import { computeMaxLife } from "../game/stats";
 import { createInitialState, supportSlotCount, type GameState } from "../game/state";
 import { validateState } from "../game/validate";
-import { HEAVY_STRIKE_BRUTE_FORCE, type BuildPreset } from "./presets/heavy-strike-brute-force";
+import { applyPreset, PRESETS, type BuildPreset } from "./presets";
 
 // Minimal Node globals, to avoid a dependency on @types/node for one script.
 declare const process: { argv: string[]; exitCode: number | undefined };
 
 interface Options {
+  presets: readonly BuildPreset[];
   zone: ZoneId | null;
   level: number;
   hours: number;
@@ -36,10 +37,8 @@ interface Options {
 /** Presets are re-applied between chunks, so a level-up takes effect at most this late. */
 const CHUNK_MS = 10_000;
 
-const PRESET = HEAVY_STRIKE_BRUTE_FORCE;
-
 function parseArgs(argv: readonly string[]): Options {
-  const options: Options = { zone: null, level: 1, hours: 8, seed: 1, autoGear: true };
+  const options: Options = { presets: [PRESETS[0]!], zone: null, level: 1, hours: 8, seed: 1, autoGear: true };
   for (const arg of argv) {
     const match = /^--([a-z]+)=(.*)$/.exec(arg);
     if (match === null) {
@@ -47,6 +46,18 @@ function parseArgs(argv: readonly string[]): Options {
     }
     const [, key, value] = match as unknown as [string, string, string];
     switch (key) {
+      case "preset": {
+        if (value === "all") {
+          options.presets = PRESETS;
+          break;
+        }
+        const preset = PRESETS.find((p) => p.id === value);
+        if (preset === undefined) {
+          throw new Error(`unknown preset "${value}"; expected all or one of ${PRESETS.map((p) => p.id).join(", ")}`);
+        }
+        options.presets = [preset];
+        break;
+      }
       case "zone":
         if (!(ZONE_ORDER as readonly string[]).includes(value)) {
           throw new Error(`unknown zone "${value}"; expected one of ${ZONE_ORDER.join(", ")}`);
@@ -87,34 +98,6 @@ function assertValid(state: GameState, what: string): void {
   if (!validation.ok) {
     throw new Error(`invalid ${what}: ${validation.errors.join("; ")}`);
   }
-}
-
-/**
- * Sets the preset's skill, fills support slots and allocates passives up to the points the
- * current level grants. Tool-only: it writes the build directly instead of going through
- * player actions, then validates the result.
- */
-function applyPreset(state: GameState, preset: BuildPreset): void {
-  const { character } = state;
-  const skill = SKILLS[preset.skill];
-  if (character.level < skill.unlockLevel) {
-    throw new Error(`preset skill ${skill.name} requires level ${skill.unlockLevel}`);
-  }
-  character.activeSkillId = preset.skill;
-
-  const supports = preset.supportPriority.filter((id) => {
-    const support = SUPPORTS[id];
-    return (
-      support.unlockLevel <= character.level &&
-      support.requiresTags.every((tag) => skill.tags.includes(tag)) &&
-      !support.excludesTags.some((tag) => skill.tags.includes(tag))
-    );
-  });
-  character.supportIds = Array.from({ length: supportSlotCount(character.level) }, (_, i) => supports[i] ?? null);
-
-  const points = Math.floor(character.level / PASSIVE_POINT_EVERY_LEVELS);
-  character.allocatedPassives = preset.passiveOrder.slice(0, points);
-  assertValid(state, `state after applying preset "${preset.name}"`);
 }
 
 /** Allowed relative loss on the other metric when one improves (plan §14.4). */
@@ -161,10 +144,11 @@ function autoGear(state: GameState): string[] {
   return equipped;
 }
 
-function setupState(options: Options): GameState {
+function setupState(options: Options, preset: BuildPreset): GameState {
   const state = createInitialState(options.seed);
   state.character.level = options.level;
-  applyPreset(state, PRESET);
+  state.character.supportIds = Array.from({ length: supportSlotCount(options.level) }, () => null);
+  applyPreset(state, preset);
   state.character.life = computeMaxLife(state);
 
   if (options.zone !== null) {
@@ -198,8 +182,18 @@ function seconds(ms: number | null): string {
   return ms === null ? "n/a" : `${(ms / 1000).toFixed(2)} s`;
 }
 
-function run(options: Options): void {
-  const state = setupState(options);
+interface Summary {
+  preset: BuildPreset;
+  clearMs: number | null;
+  deathsPerHour: number;
+  xpPerHour: number;
+  finalLevel: number;
+  finalActivity: string;
+  evaluation: BuildEvaluation;
+}
+
+function simulate(options: Options, preset: BuildPreset): { lines: string[]; summary: Summary } {
+  const state = setupState(options, preset);
   const totalMs = Math.round(options.hours * 3_600_000);
 
   const clearTimes: number[] = [];
@@ -256,7 +250,7 @@ function run(options: Options): void {
       }
     }
     if (levelledUp) {
-      applyPreset(state, PRESET);
+      applyPreset(state, preset);
     }
     if (options.autoGear && (lootArrived || levelledUp)) {
       upgrades += autoGear(state).length;
@@ -272,8 +266,10 @@ function run(options: Options): void {
   const activity = progression.activity;
   const evaluation = evaluateState(state);
   const perHour = (n: number) => (n / hours).toFixed(1);
+  const finalActivity = activity.kind === "zone" ? ZONES[activity.zoneId].name : `map tier ${activity.tier}`;
+  const supports = character.supportIds.filter((id) => id !== null).join(", ") || "none";
   const lines = [
-    `sim-report v1 — build: ${PRESET.name} (gear: ${options.autoGear ? "auto-equip drops" : "starting weapon only"})`,
+    `sim-report — build: ${preset.name} (gear: ${options.autoGear ? "auto-equip drops" : "starting weapon only"})`,
     `seed ${options.seed}, ${options.hours} h, ${options.zone === null ? "campaign from start" : `farming ${ZONES[options.zone].name}`}`,
     ``,
     `avg normal clear time:  ${seconds(mean(clearTimes))} (${clearTimes.length} encounters)`,
@@ -287,7 +283,8 @@ function run(options: Options): void {
         ? "n/a"
         : formatDuration(((xpToNextLevel(character.level) - character.xp) / xpPerHour) * 3_600_000)
     }`,
-    `final activity:         ${activity.kind === "zone" ? ZONES[activity.zoneId].name : `map tier ${activity.tier}`}`,
+    `final activity:         ${finalActivity}`,
+    `final skill:            ${SKILLS[character.activeSkillId].name} (supports: ${supports}; ${character.allocatedPassives.length} passives)`,
     `items / hour:           ${RARITIES.map((r) => `${r} ${perHour(itemsByRarity[r])}`).join(", ")} (overflow ${overflow})`,
     `currency / hour:        ${Object.entries(currencyGained)
       .map(([id, n]) => `${CURRENCIES[id as CurrencyId].name} ${perHour(n)}`)
@@ -306,7 +303,54 @@ function run(options: Options): void {
       lines.push(`  ${formatDuration(timeMs).padStart(8)}  ${ZONES[zoneId].name}`);
     }
   }
-  console.log(lines.join("\n"));
+  const summary: Summary = {
+    preset,
+    clearMs: mean(clearTimes),
+    deathsPerHour: deaths / hours,
+    xpPerHour,
+    finalLevel: character.level,
+    finalActivity,
+    evaluation,
+  };
+  return { lines, summary };
+}
+
+function comparisonLines(summaries: readonly Summary[]): string[] {
+  const columns: [string, (s: Summary) => string][] = [
+    ["single DPS", (s) => s.evaluation.singleTargetDps.toFixed(1)],
+    ["pack DPS", (s) => s.evaluation.packDps.toFixed(1)],
+    ["EHP", (s) => s.evaluation.ehp.toFixed(0)],
+    ["max life", (s) => String(s.evaluation.defenses.maxLife)],
+    ["clear", (s) => seconds(s.clearMs)],
+    ["deaths/h", (s) => s.deathsPerHour.toFixed(2)],
+    ["XP/h", (s) => s.xpPerHour.toFixed(0)],
+    ["level", (s) => String(s.finalLevel)],
+    ["activity", (s) => s.finalActivity],
+  ];
+  const nameWidth = Math.max(...summaries.map((s) => s.preset.id.length));
+  const widths = columns.map(([h, get]) => Math.max(h.length, ...summaries.map((s) => get(s).length)));
+  const row = (cells: string[]) => cells.map((c, i) => c.padStart(widths[i]!)).join("  ");
+  return [
+    `${"preset".padEnd(nameWidth)}  ${row(columns.map(([h]) => h))}`,
+    ...summaries.map((s) => `${s.preset.id.padEnd(nameWidth)}  ${row(columns.map(([, get]) => get(s)))}`),
+  ];
+}
+
+function run(options: Options): void {
+  if (options.presets.length === 1) {
+    console.log(simulate(options, options.presets[0]!).lines.join("\n"));
+    return;
+  }
+  const summaries = options.presets.map((preset) => simulate(options, preset).summary);
+  const scope = options.zone === null ? "campaign from start" : `farming ${ZONES[options.zone].name}`;
+  console.log(
+    [
+      `sim-report — all presets, seed ${options.seed}, ${options.hours} h, ${scope}, level ${options.level}, gear ${options.autoGear ? "auto" : "none"}`,
+      `(DPS / EHP are standardized estimates of the final build)`,
+      ``,
+      ...comparisonLines(summaries),
+    ].join("\n"),
+  );
 }
 
 try {
