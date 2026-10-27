@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { SKILLS, type SkillId } from "../src/data/skills";
+import { LEVEL_GAP_MAX_LEVELS, LEVEL_GAP_PCT_PER_LEVEL } from "../src/data/balance";
 import {
   effectiveResistance,
   finalDamage,
+  levelGap,
+  levelGapMods,
   mitigateHit,
   mitigatePortion,
   monsterStats,
@@ -194,5 +197,24 @@ describe("derived stats", () => {
     state.character.allocatedPassives = ["b1", "b3"];
     // (100 + 20) × 1.08
     expect(computeDefenses(collectBuild(state)).maxLife).toBe(129);
+  });
+});
+
+describe("level gap", () => {
+  it("counts only levels the monsters are above the character, up to the cap", () => {
+    expect(levelGap(10, 12)).toBe(0);
+    expect(levelGap(10, 10)).toBe(0);
+    expect(levelGap(13, 10)).toBe(3);
+    expect(levelGap(50, 1)).toBe(LEVEL_GAP_MAX_LEVELS);
+  });
+
+  it("gives monsters more life and damage per level of gap", () => {
+    expect(levelGapMods(0)).toEqual([]);
+    const pct = 3 * LEVEL_GAP_PCT_PER_LEVEL;
+    const plain = monsterStats("brute", 20);
+    const gapped = monsterStats("brute", 20, levelGapMods(3));
+    expect(gapped.maxLife).toBe(Math.round(monsterStats("brute", 20).maxLife * (1 + pct / 100)));
+    expect(gapped.damagePerHit).toBeCloseTo(plain.damagePerHit * (1 + pct / 100));
+    expect(gapped.armor).toBe(plain.armor);
   });
 });

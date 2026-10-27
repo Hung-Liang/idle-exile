@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  autoAdvanceLevel,
   BASE_LIFE,
   interpolateCurve,
   MAX_LEVEL,
@@ -11,9 +12,18 @@ import {
   XP_PENALTY_PER_EXCESS_LEVEL,
   xpToNextLevel,
 } from "../src/data/balance";
-import { ZONE_ORDER } from "../src/data/zones";
+import { MAP_TIERS } from "../src/data/maps";
+import { ZONE_ORDER, ZONES } from "../src/data/zones";
 import type { GameEvent } from "../src/game/events";
-import { grantXp, recordBossDefeated, recordEncounterCleared, retreat, xpMultiplier } from "../src/game/progression";
+import {
+  blockedAutoAdvance,
+  grantXp,
+  recordBossDefeated,
+  recordEncounterCleared,
+  retreat,
+  travelToZone,
+  xpMultiplier,
+} from "../src/game/progression";
 import { createInitialState } from "../src/game/state";
 import { resolveActivity } from "../src/game/zones";
 
@@ -87,6 +97,7 @@ describe("zone progress", () => {
 
   it("a boss kill unlocks the next zone and auto-advances", () => {
     const state = createInitialState(1);
+    state.character.level = autoAdvanceLevel(ZONES.drowned_fields.monsterLevel);
     state.progression.zoneProgress.ashen_outskirts!.encountersCleared = 10;
     const events: GameEvent[] = [];
     recordBossDefeated(state, events);
@@ -94,6 +105,36 @@ describe("zone progress", () => {
     expect(state.progression.unlockedZones).toEqual(["ashen_outskirts", "drowned_fields"]);
     expect(state.progression.activity).toEqual({ kind: "zone", zoneId: "drowned_fields" });
     expect(events.map((e) => e.type)).toEqual(["zone_unlocked", "activity_changed"]);
+  });
+
+  it("auto-advance waits in a cleared zone until the character reaches the next zone's level", () => {
+    const state = createInitialState(1);
+    const required = autoAdvanceLevel(ZONES.drowned_fields.monsterLevel);
+    state.character.level = required - 1;
+    const events: GameEvent[] = [];
+    recordBossDefeated(state, events);
+    expect(state.progression.unlockedZones).toEqual(["ashen_outskirts", "drowned_fields"]);
+    expect(state.progression.activity).toEqual({ kind: "zone", zoneId: "ashen_outskirts" });
+    expect(events.map((e) => e.type)).toEqual(["zone_unlocked"]);
+    expect(state.log.at(-1)!.text).toBe(`Need level ${required} to advance to Drowned Fields.`);
+    expect(blockedAutoAdvance(state)).toEqual({ name: "Drowned Fields", requiredLevel: required });
+
+    state.character.level = required;
+    expect(blockedAutoAdvance(state)).toBeNull();
+    recordBossDefeated(state, []);
+    expect(state.progression.activity).toEqual({ kind: "zone", zoneId: "drowned_fields" });
+  });
+
+  it("the auto-advance level requirement does not apply without auto-advance, before a clear, or to manual travel", () => {
+    const state = createInitialState(1);
+    expect(blockedAutoAdvance(state)).toBeNull();
+    state.progression.zoneProgress.ashen_outskirts!.bossDefeated = true;
+    state.progression.unlockedZones = [...ZONE_ORDER];
+    expect(blockedAutoAdvance(state)).not.toBeNull();
+    state.settings.autoAdvance = false;
+    expect(blockedAutoAdvance(state)).toBeNull();
+    expect(travelToZone(state, "spire_of_ruin", [])).toBe(true);
+    expect(state.progression.activity).toEqual({ kind: "zone", zoneId: "spire_of_ruin" });
   });
 
   it("without auto-advance the boss cycle repeats in the same zone", () => {
@@ -107,6 +148,7 @@ describe("zone progress", () => {
 
   it("the last zone's boss unlocks map tier 1 and auto-advances into it", () => {
     const state = createInitialState(1);
+    state.character.level = autoAdvanceLevel(MAP_TIERS[0]!.monsterLevel);
     const last = ZONE_ORDER[ZONE_ORDER.length - 1]!;
     state.progression.unlockedZones = [...ZONE_ORDER];
     state.progression.activity = { kind: "zone", zoneId: last };

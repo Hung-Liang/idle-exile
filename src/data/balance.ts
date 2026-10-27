@@ -14,6 +14,13 @@ export const LOG_CAPACITY = 200;
 export const ZONE_REQUIRED_ENCOUNTERS = 10;
 export const MAX_MAP_TIER = 5;
 
+/** Auto-advance only enters an area once the character is at most this many levels below it. */
+export const AUTO_ADVANCE_LEVEL_MARGIN = 2;
+
+export function autoAdvanceLevel(monsterLevel: number): number {
+  return monsterLevel - AUTO_ADVANCE_LEVEL_MARGIN;
+}
+
 // --- Character (plan §6.1) ---
 
 export const CHARACTER_BASE = {
@@ -43,6 +50,11 @@ export const RESPAWN_MS = 5_000;
 /** Percent of max life recovered when an encounter is cleared, before `life_recovery_on_clear`. */
 export const TRANSITION_LIFE_RECOVERY_PCT = 15;
 export const DEATHS_BEFORE_RETREAT = 3;
+
+// --- Level gap: monsters above the character's level gain more life and damage ---
+
+export const LEVEL_GAP_PCT_PER_LEVEL = 4;
+export const LEVEL_GAP_MAX_LEVELS = 10;
 
 // --- Encounters (plan §4.3) ---
 

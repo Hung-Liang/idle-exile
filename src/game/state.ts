@@ -47,6 +47,11 @@ export interface EncounterRuntime {
   player: { nextAttackAt: number };
   /** Reset at encounter start. */
   stacks: Partial<Record<StackId, number>>;
+  /**
+   * Monster level minus character level at encounter start (see `levelGap`). Fixed for the
+   * encounter so a mid-encounter level-up cannot make the result depend on how `advance()` is split.
+   */
+  levelGap: number;
 }
 
 export interface LootFilterRule {

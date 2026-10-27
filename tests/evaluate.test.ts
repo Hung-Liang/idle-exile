@@ -128,6 +128,7 @@ function engineDps(state: GameState, ms: number): number {
     monsters: [{ defId: "ember_wisp", level: 1, life, maxLife: life, nextAttackAt: ms + wisp.attackIntervalMs, alive: true }],
     player: { nextAttackAt: 0 },
     stacks: {},
+    levelGap: 0,
   };
   advance(state, ms - 1);
   return ((life - state.encounter.monsters[0]!.life) / ms) * 1000;

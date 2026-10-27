@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
-import { RESPAWN_MS, TRANSITION_MS, ZONE_REQUIRED_ENCOUNTERS } from "../src/data/balance";
+import { LEVEL_GAP_PCT_PER_LEVEL, RESPAWN_MS, TRANSITION_MS, xpToNextLevel, ZONE_REQUIRED_ENCOUNTERS } from "../src/data/balance";
 import { monsterStats } from "../src/game/combat";
 import { advance, dispatch } from "../src/game/engine";
 import { nextFloat, type RngState } from "../src/game/random";
@@ -25,6 +25,7 @@ function fightingState(monsters: MonsterRuntime[], playerNextAttackAt: number): 
     monsters,
     player: { nextAttackAt: playerNextAttackAt },
     stacks: {},
+    levelGap: 0,
   };
   return state;
 }
@@ -38,7 +39,7 @@ function expectValid(state: GameState): void {
 function variedState(seed: number, variant: number): GameState {
   const state = createInitialState(seed);
   const c = state.character;
-  switch (variant % 4) {
+  switch (variant % 5) {
     case 0:
       break;
     case 1:
@@ -59,6 +60,13 @@ function variedState(seed: number, variant: number): GameState {
       c.supportIds = [null, null];
       state.progression.unlockedMapTier = 2;
       state.progression.activity = { kind: "map", tier: 2, modifiers: ["savage", "swarming"], encountersCleared: 9 };
+      break;
+    case 4:
+      // Underleveled and one kill from a level-up: the level gap shrinks between encounters.
+      c.level = 3;
+      c.xp = xpToNextLevel(3) - 1;
+      state.progression.unlockedZones = ["ashen_outskirts", "drowned_fields", "hollow_pines"];
+      state.progression.activity = { kind: "zone", zoneId: "hollow_pines" };
       break;
   }
   return state;
@@ -165,6 +173,7 @@ describe("advance: death and respawn", () => {
       monsters: [],
       player: { nextAttackAt: 0 },
       stacks: {},
+      levelGap: 0,
     };
     state.character.life = 0;
     advance(state, RESPAWN_MS - 1);
@@ -191,6 +200,7 @@ describe("advance: death and respawn", () => {
       monsters: [monster("brute", { level: 4, nextAttackAt: 10 })],
       player: { nextAttackAt: 10_000 },
       stacks: {},
+      levelGap: 0,
     };
     state.character.life = 1;
     advance(state, 10);
@@ -215,6 +225,7 @@ describe("advance: stacks", () => {
       monsters: Array.from({ length: 7 }, (_, i) => weak(i)),
       player: { nextAttackAt: 0 },
       stacks: {},
+      levelGap: 0,
     };
     // Rusted Blade 1.3 × 20% less × (1 + 12% + 2% per stack).
     const interval = (stacks: number) => Math.round(1000 / (1.3 * 0.8 * (1 + (12 + 2 * stacks) / 100)));
@@ -245,12 +256,35 @@ describe("advance: stacks", () => {
   });
 });
 
+describe("advance: level gap", () => {
+  it("is fixed when the encounter starts, scales monster life, and is re-evaluated by the next encounter", () => {
+    const state = createInitialState(1);
+    state.character.level = 3;
+    state.character.xp = xpToNextLevel(3) - 1;
+    state.progression.unlockedZones = ["ashen_outskirts", "drowned_fields", "hollow_pines"];
+    state.progression.activity = { kind: "zone", zoneId: "hollow_pines" };
+    advance(state, 0);
+    const first = state.encounter!;
+    expect(first.levelGap).toBe(5);
+    for (const m of first.monsters) {
+      expect(m.maxLife).toBe(Math.round(monsterStats(m.defId, m.level).maxLife * (1 + (5 * LEVEL_GAP_PCT_PER_LEVEL) / 100)));
+    }
+
+    let guard = 0;
+    while (state.character.level === 3 && guard++ < 10_000) advance(state, 100);
+    expect(state.character.level).toBe(4);
+    if (state.encounter === first) expect(state.encounter.levelGap).toBe(5);
+    while (state.encounter === first && guard++ < 20_000) advance(state, 100);
+    expect(state.encounter!.levelGap).toBe(4);
+  });
+});
+
 describe("advance: split invariance", () => {
   it("advance(a + b) equals advance(a); advance(b), including encounter and rng", () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 0, max: 0xffffffff }),
-        fc.integer({ min: 0, max: 3 }),
+        fc.integer({ min: 0, max: 4 }),
         fc.integer({ min: 0, max: 600_000 }),
         fc.array(fc.integer({ min: 0, max: 600_000 }), { maxLength: 6 }),
         (seed, variant, total, cuts) => {

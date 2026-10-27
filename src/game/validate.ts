@@ -1,4 +1,4 @@
-import { INVENTORY_CAPACITY, LOG_CAPACITY, MAX_LEVEL, MAX_MAP_TIER } from "../data/balance";
+import { INVENTORY_CAPACITY, LEVEL_GAP_MAX_LEVELS, LOG_CAPACITY, MAX_LEVEL, MAX_MAP_TIER } from "../data/balance";
 import { AFFIXES } from "../data/affixes";
 import { CURRENCIES } from "../data/currencies";
 import { AFFIX_CATEGORY_LIMITS } from "../data/drop-tables";
@@ -326,6 +326,7 @@ function checkEncounter(c: Checker, v: unknown): void {
   if (!["fighting", "transition", "respawning"].includes(v.phase as string)) c.fail("encounter.phase", "unknown phase");
   c.nonNegInt("encounter.phaseEndsAt", v.phaseEndsAt);
   if (c.obj("encounter.player", v.player)) c.nonNegInt("encounter.player.nextAttackAt", v.player.nextAttackAt);
+  c.intInRange("encounter.levelGap", v.levelGap, 0, LEVEL_GAP_MAX_LEVELS);
   if (c.obj("encounter.stacks", v.stacks)) {
     for (const [id, n] of Object.entries(v.stacks)) {
       c.ref("encounter.stacks", id, STACKS);

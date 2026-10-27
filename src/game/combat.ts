@@ -1,6 +1,8 @@
 import {
   ARMOR_DR_CAP,
   ARMOR_RAW_FACTOR,
+  LEVEL_GAP_MAX_LEVELS,
+  LEVEL_GAP_PCT_PER_LEVEL,
   MAX_ATTACKS_PER_SECOND,
   monsterBaseArmor,
   monsterBaseDamage,
@@ -36,6 +38,22 @@ export interface MonsterStats {
 }
 
 const MONSTER_CONTEXT: AggregateContext = { tags: [], stacks: {} };
+
+/** Levels the monsters are above the character, clamped to `[0, LEVEL_GAP_MAX_LEVELS]`. */
+export function levelGap(monsterLevel: number, characterLevel: number): number {
+  return Math.min(LEVEL_GAP_MAX_LEVELS, Math.max(0, monsterLevel - characterLevel));
+}
+
+/** Monster modifiers for a level gap: more life and more damage, `LEVEL_GAP_PCT_PER_LEVEL` each per level. */
+export function levelGapMods(gap: number): Modifier[] {
+  if (gap <= 0) return [];
+  const value = gap * LEVEL_GAP_PCT_PER_LEVEL;
+  const source = { kind: "level_gap", id: "level_gap" } as const;
+  return [
+    { stat: "life_max", kind: "more", value, source },
+    { stat: "damage", kind: "more", value, source },
+  ];
+}
 
 /**
  * `mods` are the activity's monster modifiers (map modifiers): `life_max` and `damage` scale the

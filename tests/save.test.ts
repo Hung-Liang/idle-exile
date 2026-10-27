@@ -30,6 +30,7 @@ function withEncounter(state: GameState): GameState {
     monsters: [{ defId: "brute", level: 1, life: 12, maxLife: 39, nextAttackAt: 5000, alive: true }],
     player: { nextAttackAt: 4200 },
     stacks: { momentum: 2 },
+    levelGap: 0,
   };
   return state;
 }

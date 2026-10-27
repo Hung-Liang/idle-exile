@@ -87,6 +87,7 @@ describe("set_active_skill", () => {
       monsters: [{ defId: "brute", level: 1, life: 1e9, maxLife: 1e9, nextAttackAt: 1e9, alive: true }],
       player: { nextAttackAt: 1000 },
       stacks: {},
+      levelGap: 0,
     };
     dispatch(state, { type: "set_active_skill", skillId: "rapid_assault" });
     expect(state.encounter.player.nextAttackAt).toBe(1000);

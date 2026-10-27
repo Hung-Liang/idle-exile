@@ -1,7 +1,9 @@
 import { MAP_MODIFIERS } from "../../data/map-modifiers";
 import { ZONES, type ZoneId } from "../../data/zones";
+import { LEVEL_GAP_PCT_PER_LEVEL } from "../../data/balance";
 import { monsterStats } from "../../game/combat";
 import type { ActionResult, PlayerAction } from "../../game/engine";
+import { blockedAutoAdvance } from "../../game/progression";
 import type { GameState } from "../../game/state";
 import { resolveActivity } from "../../game/zones";
 import type { Panel } from "./character-panel";
@@ -29,6 +31,8 @@ export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResu
   const progress = bar("progress");
   const status = el("div", "muted");
   const mapInfo = el("div", "stats");
+  const gapInfo = el("div", "stats");
+  const nextInfo = el("div", "muted");
   const monstersList = el("div", "monsters");
   const monsterBars: Bar[] = [];
 
@@ -55,7 +59,9 @@ export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResu
     progress.root,
     status,
     paused,
+    nextInfo,
     mapInfo,
+    gapInfo,
     monstersList,
     controls,
     el("h3", undefined, "Combat log"),
@@ -96,6 +102,14 @@ export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResu
         const mods = activity.modifiers.map((id) => `${MAP_MODIFIERS[id].name} (${MAP_MODIFIERS[id].description})`);
         mapInfo.textContent = `Modifiers: ${mods.length === 0 ? "none" : mods.join(" · ")} — Item quantity +${resolved.itemQuantityPct}%, rarity +${resolved.itemRarityPct}%`;
       }
+
+      const gap = encounter?.levelGap ?? 0;
+      gapInfo.hidden = gap === 0;
+      gapInfo.textContent = `Level gap ${gap}: monsters have ${gap * LEVEL_GAP_PCT_PER_LEVEL}% more life and damage`;
+
+      const blocked = blockedAutoAdvance(state);
+      nextInfo.hidden = blocked === null;
+      if (blocked !== null) nextInfo.textContent = `Next: ${blocked.name} at level ${blocked.requiredLevel}`;
 
       const monsters = encounter?.phase === "fighting" ? encounter.monsters : [];
       while (monsterBars.length < monsters.length) {

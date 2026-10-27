@@ -5,9 +5,9 @@ import type { SupportId } from "../data/supports";
 import { DEATHS_BEFORE_RETREAT, RESPAWN_MS, TRANSITION_LIFE_RECOVERY_PCT, TRANSITION_MS } from "../data/balance";
 import { STACKS, type StackId } from "../data/stacks";
 import type { ZoneId } from "../data/zones";
-import { mitigateHit, monsterStats, resolveHit, rollAttack, rollMonsterHit } from "./combat";
+import { mitigateHit, monsterStats, resolveHit, rollAttack, rollMonsterHit, type MonsterStats } from "./combat";
 import { useCurrency, type CraftError } from "./crafting";
-import { createEncounter } from "./encounters";
+import { createEncounter, encounterMonsterMods } from "./encounters";
 import type { EquipSlot, ItemId } from "./equipment";
 import { nextScheduledEvent, type GameEvent } from "./events";
 import { equipItem, salvageItem, unequipSlot, type InventoryError } from "./inventory";
@@ -24,7 +24,7 @@ import {
 } from "./progression";
 import { setActiveSkill, setSupport, type SkillError } from "./skills";
 import { attackIntervalMs, collectBuild, computeDefenses, type DefensiveStats, type PlayerBuild } from "./stats";
-import { appendLog, type EncounterRuntime, type GameState, type LootFilterRule } from "./state";
+import { appendLog, type EncounterRuntime, type GameState, type LootFilterRule, type MonsterRuntime } from "./state";
 import { validateLootFilter } from "./validate";
 import { resolveActivity, type ResolvedActivity } from "./zones";
 
@@ -89,7 +89,7 @@ function startEncounter(sim: Sim): EncounterRuntime {
   const { state } = sim;
   // Re-resolved here because encounter progress is part of the view.
   sim.activity = resolveActivity(state);
-  const encounter = createEncounter(sim.activity, state.rng.encounter, state.simTimeMs);
+  const encounter = createEncounter(sim.activity, state.character.level, state.rng.encounter, state.simTimeMs);
   state.encounter = encounter;
   if (encounter.isBoss) {
     appendLog(state, "info", `${monsterStats(encounter.monsters[0]!.defId, encounter.monsters[0]!.level).name} appears!`);
@@ -102,10 +102,14 @@ function stackIsReferenced(build: PlayerBuild, id: StackId): boolean {
   return build.mods.some((mod) => mod.perStack === id);
 }
 
+function encounterMonsterStats(sim: Sim, encounter: EncounterRuntime, monster: MonsterRuntime): MonsterStats {
+  return monsterStats(monster.defId, monster.level, encounterMonsterMods(sim.activity.monsterMods, encounter.levelGap));
+}
+
 function onMonsterKilled(sim: Sim, encounter: EncounterRuntime, monsterIndex: number): void {
   const { state } = sim;
   const monster = encounter.monsters[monsterIndex]!;
-  const stats = monsterStats(monster.defId, monster.level, sim.activity.monsterMods);
+  const stats = encounterMonsterStats(sim, encounter, monster);
   monster.alive = false;
   state.progression.totalKills += 1;
 
@@ -165,7 +169,7 @@ function playerAttack(sim: Sim, encounter: EncounterRuntime): void {
 
   targets.forEach((monsterIndex, hitIndex) => {
     const monster = encounter.monsters[monsterIndex]!;
-    const stats = monsterStats(monster.defId, monster.level, sim.activity.monsterMods);
+    const stats = encounterMonsterStats(sim, encounter, monster);
     const damage = resolveHit(
       build,
       roll,
@@ -192,7 +196,7 @@ function playerAttack(sim: Sim, encounter: EncounterRuntime): void {
 function monsterAttack(sim: Sim, encounter: EncounterRuntime, monsterIndex: number): void {
   const { state } = sim;
   const monster = encounter.monsters[monsterIndex]!;
-  const stats = monsterStats(monster.defId, monster.level, sim.activity.monsterMods);
+  const stats = encounterMonsterStats(sim, encounter, monster);
   const damage = mitigateHit(rollMonsterHit(stats, state.rng.combat), {
     armor: sim.defenses.armor,
     resistances: sim.defenses.resistances,

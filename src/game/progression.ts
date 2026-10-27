@@ -1,6 +1,6 @@
-import { MAX_LEVEL, MAX_MAP_TIER, XP_MIN_MULTIPLIER, XP_PENALTY_PER_EXCESS_LEVEL, xpSafeRange, xpToNextLevel } from "../data/balance";
+import { autoAdvanceLevel, MAX_LEVEL, MAX_MAP_TIER, XP_MIN_MULTIPLIER, XP_PENALTY_PER_EXCESS_LEVEL, xpSafeRange, xpToNextLevel } from "../data/balance";
 import { MAP_MODIFIERS, type MapModifierId } from "../data/map-modifiers";
-import { MAP_MODIFIER_COUNT_WEIGHTS } from "../data/maps";
+import { MAP_MODIFIER_COUNT_WEIGHTS, mapTier } from "../data/maps";
 import { ZONE_ORDER, ZONES, type ZoneId } from "../data/zones";
 import type { GameEvent } from "./events";
 import { nextInt, weightedIndex, type RngState } from "./random";
@@ -80,8 +80,9 @@ function startMapRun(state: GameState, tier: number, events: GameEvent[]): void 
 
 /**
  * Progress write-back for a boss kill (plan §10.4, §10.5). Zone: the cycle restarts, the next
- * zone unlocks, and with auto-advance the character moves on; the last zone's boss unlocks maps.
- * Map: the next tier unlocks and a new run starts (one tier up with auto-advance).
+ * zone unlocks, and with auto-advance the character moves on once their level allows it; the
+ * last zone's boss unlocks maps. Map: the next tier unlocks and a new run starts (one tier up
+ * with auto-advance, level permitting).
  */
 export function recordBossDefeated(state: GameState, events: GameEvent[]): void {
   const progression = state.progression;
@@ -94,7 +95,11 @@ export function recordBossDefeated(state: GameState, events: GameEvent[]): void 
       appendLog(state, "info", `Unlocked Map Tier ${unlocked}.`);
       events.push({ type: "map_tier_unlocked", timeMs: state.simTimeMs, tier: unlocked });
     }
-    const nextTier = state.settings.autoAdvance && progression.unlockedMapTier > activity.tier ? activity.tier + 1 : activity.tier;
+    let nextTier = activity.tier;
+    if (state.settings.autoAdvance && progression.unlockedMapTier > activity.tier) {
+      const next = activity.tier + 1;
+      if (meetsAutoAdvanceLevel(state, mapTier(next).monsterLevel, `Map Tier ${next}`)) nextTier = next;
+    }
     startMapRun(state, nextTier, events);
     return;
   }
@@ -112,7 +117,7 @@ export function recordBossDefeated(state: GameState, events: GameEvent[]): void 
       events.push({ type: "map_tier_unlocked", timeMs: state.simTimeMs, tier: 1 });
     }
     // Auto-advance continues from the campaign into the first map tier.
-    if (state.settings.autoAdvance) {
+    if (state.settings.autoAdvance && meetsAutoAdvanceLevel(state, mapTier(1).monsterLevel, "Map Tier 1")) {
       startMapRun(state, 1, events);
     }
     return;
@@ -123,10 +128,42 @@ export function recordBossDefeated(state: GameState, events: GameEvent[]): void 
     appendLog(state, "info", `Unlocked ${ZONES[next].name}.`);
     events.push({ type: "zone_unlocked", timeMs: state.simTimeMs, zoneId: next });
   }
-  if (state.settings.autoAdvance) {
+  if (state.settings.autoAdvance && meetsAutoAdvanceLevel(state, ZONES[next].monsterLevel, ZONES[next].name)) {
     setZoneActivity(state, next, events);
     appendLog(state, "info", `Advancing to ${ZONES[next].name}.`);
   }
+}
+
+/**
+ * Auto-advance waits until the character is close enough to the next area's level. A cleared
+ * zone's boss returns every cycle (and a map restarts at the same tier), so the check repeats
+ * at each boss kill. Manual travel is not gated.
+ */
+function meetsAutoAdvanceLevel(state: GameState, monsterLevel: number, areaName: string): boolean {
+  const required = autoAdvanceLevel(monsterLevel);
+  if (state.character.level >= required) return true;
+  appendLog(state, "info", `Need level ${required} to advance to ${areaName}.`);
+  return false;
+}
+
+/** The area auto-advance would move to next while the character is below its level requirement, else null. */
+export function blockedAutoAdvance(state: GameState): { name: string; requiredLevel: number } | null {
+  const { activity, zoneProgress, unlockedZones, unlockedMapTier } = state.progression;
+  if (!state.settings.autoAdvance) return null;
+  let next: { name: string; monsterLevel: number } | null = null;
+  if (activity.kind === "map") {
+    if (unlockedMapTier > activity.tier) next = { name: `Map Tier ${activity.tier + 1}`, monsterLevel: mapTier(activity.tier + 1).monsterLevel };
+  } else if (zoneProgress[activity.zoneId]?.bossDefeated === true) {
+    const zoneId = ZONE_ORDER[ZONE_ORDER.indexOf(activity.zoneId) + 1];
+    if (zoneId === undefined) {
+      if (unlockedMapTier >= 1) next = { name: "Map Tier 1", monsterLevel: mapTier(1).monsterLevel };
+    } else if (unlockedZones.includes(zoneId)) {
+      next = ZONES[zoneId];
+    }
+  }
+  if (next === null) return null;
+  const requiredLevel = autoAdvanceLevel(next.monsterLevel);
+  return state.character.level < requiredLevel ? { name: next.name, requiredLevel } : null;
 }
 
 /**

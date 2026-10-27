@@ -43,6 +43,7 @@ describe("validateState", () => {
         monsters: [{ defId: "brute", level: 1, life: 30, maxLife: 30, nextAttackAt: 1250, alive: true }],
         player: { nextAttackAt: 0 },
         stacks: { momentum: 0 },
+        levelGap: 0,
       };
     });
     expect(errors).toEqual([]);

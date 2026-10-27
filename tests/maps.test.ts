@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_MAP_TIER, monsterBaseLife, PACK_SIZE_WEIGHTS, TRANSITION_MS } from "../src/data/balance";
+import { autoAdvanceLevel, MAX_LEVEL, MAX_MAP_TIER, monsterBaseLife, PACK_SIZE_WEIGHTS, TRANSITION_MS } from "../src/data/balance";
 import type { MapModifierId } from "../src/data/map-modifiers";
 import { MAP_BOSS_POOL, MAP_MODIFIER_COUNT_WEIGHTS, MAP_REQUIRED_ENCOUNTERS, MAP_TIERS } from "../src/data/maps";
 import { MONSTERS, type MonsterId } from "../src/data/monsters";
@@ -8,7 +8,7 @@ import { monsterStats } from "../src/game/combat";
 import { createEncounter } from "../src/game/encounters";
 import { advance, dispatch } from "../src/game/engine";
 import type { GameEvent } from "../src/game/events";
-import { recordBossDefeated, recordEncounterCleared, retreat, rollMapModifiers } from "../src/game/progression";
+import { blockedAutoAdvance, recordBossDefeated, recordEncounterCleared, retreat, rollMapModifiers } from "../src/game/progression";
 import { createStreamState } from "../src/game/random";
 import { parseSave, serializeSave } from "../src/game/save";
 import { collectBuild, computeDefenses } from "../src/game/stats";
@@ -67,7 +67,7 @@ describe("map modifier effects", () => {
 
   it("monsters spawned in a map carry the modified life", () => {
     const state = inMap(1, ["fortified"]);
-    const encounter = createEncounter(resolveActivity(state), createStreamState(5, "encounter"), 0);
+    const encounter = createEncounter(resolveActivity(state), MAX_LEVEL, createStreamState(5, "encounter"), 0);
     for (const m of encounter.monsters) {
       expect(m.maxLife).toBe(Math.round(monsterBaseLife(m.level) * MONSTERS[m.defId as MonsterId].lifeMult * 1.4));
     }
@@ -127,18 +127,40 @@ describe("map progress", () => {
     const state = inMap(1, []);
     for (let i = 0; i < MAP_REQUIRED_ENCOUNTERS; i++) recordEncounterCleared(state);
     expect(state.progression.activity).toMatchObject({ encountersCleared: MAP_REQUIRED_ENCOUNTERS });
-    const encounter = createEncounter(resolveActivity(state), createStreamState(1, "encounter"), 0);
+    const encounter = createEncounter(resolveActivity(state), MAX_LEVEL, createStreamState(1, "encounter"), 0);
     expect(encounter.isBoss).toBe(true);
     expect(MAP_BOSS_POOL).toContain(encounter.monsters[0]!.defId);
   });
 
   it("a boss kill unlocks the next tier and auto-advances into a new run", () => {
     const state = inMap(2, ["fortified"]);
+    state.character.level = autoAdvanceLevel(MAP_TIERS[2]!.monsterLevel);
     const events: GameEvent[] = [];
     recordBossDefeated(state, events);
     expect(state.progression.unlockedMapTier).toBe(3);
     expect(state.progression.activity).toMatchObject({ kind: "map", tier: 3, encountersCleared: 0 });
     expect(events.map((e) => e.type)).toEqual(["map_tier_unlocked", "activity_changed"]);
+  });
+
+  it("auto-advance waits at the same tier until the character reaches the next tier's level", () => {
+    const state = inMap(2, []);
+    state.character.level = autoAdvanceLevel(MAP_TIERS[2]!.monsterLevel) - 1;
+    recordBossDefeated(state, []);
+    expect(state.progression.unlockedMapTier).toBe(3);
+    expect(state.progression.activity).toMatchObject({ kind: "map", tier: 2, encountersCleared: 0 });
+    expect(state.log.some((e) => e.text === `Need level ${autoAdvanceLevel(MAP_TIERS[2]!.monsterLevel)} to advance to Map Tier 3.`)).toBe(true);
+    expect(blockedAutoAdvance(state)).toEqual({ name: "Map Tier 3", requiredLevel: autoAdvanceLevel(MAP_TIERS[2]!.monsterLevel) });
+
+    state.character.level += 1;
+    expect(blockedAutoAdvance(state)).toBeNull();
+    recordBossDefeated(state, []);
+    expect(state.progression.activity).toMatchObject({ kind: "map", tier: 3 });
+  });
+
+  it("manual start_map ignores the auto-advance level requirement", () => {
+    const state = inMap(1, [], 5);
+    expect(dispatch(state, { type: "start_map", tier: 5 }).ok).toBe(true);
+    expect(state.progression.activity).toMatchObject({ kind: "map", tier: 5 });
   });
 
   it("without auto-advance a boss kill restarts the same tier", () => {
