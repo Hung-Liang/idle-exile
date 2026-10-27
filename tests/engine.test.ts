@@ -36,11 +36,11 @@ function expectValid(state: GameState): void {
   expect(result.ok ? [] : result.errors).toEqual([]);
 }
 
-/** Varied builds so the property tests cover chains, stacks and supports. */
+/** Varied builds so the property tests cover chains, stacks, supports, spells and ailments. */
 function variedState(seed: number, variant: number): GameState {
   const state = createInitialState(seed);
   const c = state.character;
-  switch (variant % 5) {
+  switch (variant % VARIANTS) {
     case 0:
       break;
     case 1:
@@ -69,9 +69,29 @@ function variedState(seed: number, variant: number): GameState {
       state.progression.unlockedZones = ["ashen_outskirts", "drowned_fields", "hollow_pines"];
       state.progression.activity = { kind: "zone", zoneId: "hollow_pines" };
       break;
+    case 5:
+      // Fire spell with ignite (damaging ailment ticks) in an on-level zone.
+      c.level = 17;
+      c.activeSkillId = "fireball";
+      c.supportIds = ["searing_touch", "concentrated_power"];
+      c.allocatedPassives = ["a1", "a3", "AN1", "a2", "a4"];
+      state.progression.unlockedZones = ["ashen_outskirts", "drowned_fields", "hollow_pines", "saltworks", "cinder_quarry"];
+      state.progression.activity = { kind: "zone", zoneId: "cinder_quarry" };
+      break;
+    case 6:
+      // Area spell with chill and shock against full packs.
+      c.level = 18;
+      c.activeSkillId = "ice_nova";
+      c.supportIds = ["frostbite", "overcharge"];
+      c.allocatedPassives = ["a1", "a3", "AN1", "a2", "a4", "c5"];
+      state.progression.unlockedZones = ["ashen_outskirts", "drowned_fields", "hollow_pines", "saltworks", "cinder_quarry"];
+      state.progression.activity = { kind: "zone", zoneId: "cinder_quarry" };
+      break;
   }
   return state;
 }
+
+const VARIANTS = 7;
 
 describe("advance: basics", () => {
   it("rejects negative or non-integer durations", () => {
@@ -282,12 +302,29 @@ describe("advance: level gap", () => {
   });
 });
 
+describe("advance: targeting", () => {
+  it("an area spell hits every living monster with one cast", () => {
+    const monsters = [monster("brute", { nextAttackAt: 5_000 }), monster("brute", { nextAttackAt: 5_000 }), monster("brute", { nextAttackAt: 5_000 })];
+    for (const m of monsters) {
+      m.life = m.maxLife = 10_000;
+    }
+    const state = fightingState(monsters, 0);
+    state.character.level = 10;
+    state.character.activeSkillId = "ice_nova";
+    state.character.supportIds = [null, null];
+    advance(state, 0);
+    expect(monsters.every((m) => m.life < 10_000)).toBe(true);
+    // One shared roll: identical monsters take identical damage.
+    expect(new Set(monsters.map((m) => m.life)).size).toBe(1);
+  });
+});
+
 describe("advance: split invariance", () => {
   it("advance(a + b) equals advance(a); advance(b), including encounter and rng", () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 0, max: 0xffffffff }),
-        fc.integer({ min: 0, max: 4 }),
+        fc.integer({ min: 0, max: VARIANTS - 1 }),
         fc.integer({ min: 0, max: 600_000 }),
         fc.array(fc.integer({ min: 0, max: 600_000 }), { maxLength: 6 }),
         (seed, variant, total, cuts) => {
@@ -308,13 +345,15 @@ describe("advance: split invariance", () => {
   });
 
   it("holds for splits that land exactly on event times", () => {
-    for (let seed = 1; seed <= 5; seed++) {
+    for (let seed = 1; seed <= VARIANTS; seed++) {
       const reference = variedState(seed, seed);
       const stepped = variedState(seed, seed);
       advance(stepped, 0);
       for (let i = 0; i < 300; i++) {
         const enc = stepped.encounter!;
-        const times = [enc.phaseEndsAt, enc.player.nextAttackAt, ...enc.monsters.filter((m) => m.alive).map((m) => m.nextAttackAt)];
+        const alive = enc.monsters.filter((m) => m.alive);
+        const ticks = alive.flatMap((m) => [m.ailments?.bleed?.nextTickAt, m.ailments?.ignite?.nextTickAt].filter((t) => t !== undefined));
+        const times = [enc.phaseEndsAt, enc.player.nextAttackAt, ...alive.map((m) => m.nextAttackAt), ...ticks];
         const nextTime = Math.min(...times.filter((t) => t > stepped.simTimeMs));
         advance(stepped, nextTime - stepped.simTimeMs);
       }

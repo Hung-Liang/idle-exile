@@ -33,6 +33,27 @@ export const CHARACTER_BASE = {
   critMultiplier: 150,
 } as const;
 
+// --- Spells (plan §7.1) ---
+
+/**
+ * Average base damage of a spell at a character level, before the skill's effectiveness.
+ * Interpolated like the monster curves; it follows a fast weapon of the level's tier.
+ */
+export const SPELL_DAMAGE_CURVE: CurveAnchors = [
+  [1, 8],
+  [12, 26],
+  [25, 52],
+  [38, 85],
+  [50, 120],
+];
+
+/** Spell base damage rolls between (1 − spread) and (1 + spread) times the average. */
+export const SPELL_DAMAGE_SPREAD = 0.3;
+
+export function spellBaseDamage(level: number): number {
+  return interpolateCurve(SPELL_DAMAGE_CURVE, level);
+}
+
 export const RESISTANCE_DEFAULT_MAX = 75;
 export const RESISTANCE_MIN = -100;
 export const ARMOR_DR_CAP = 0.9;
@@ -45,6 +66,8 @@ export const MAX_ATTACKS_PER_SECOND = 10;
 
 export const TRANSITION_MS = 1_000;
 export const RESPAWN_MS = 5_000;
+/** Interval between damage ticks of bleed and ignite (plan §6.8). */
+export const DOT_TICK_MS = 500;
 
 // --- Recovery and death (plan §6.5, §6.6) ---
 

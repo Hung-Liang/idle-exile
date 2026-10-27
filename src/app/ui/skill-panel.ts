@@ -1,4 +1,4 @@
-import { SUPPORT_SLOT_LEVELS } from "../../data/balance";
+import { spellBaseDamage, SPELL_DAMAGE_SPREAD, SUPPORT_SLOT_LEVELS } from "../../data/balance";
 import { PASSIVE_NODES, PASSIVE_ROOT, type PassiveNodeId } from "../../data/passive-tree";
 import { SKILLS, type SkillDefinition, type SkillId } from "../../data/skills";
 import { SUPPORTS, type SupportId } from "../../data/supports";
@@ -25,6 +25,7 @@ const BRANCHES: readonly [string, string][] = [
   ["m", "Might"],
   ["c", "Celerity"],
   ["b", "Bastion"],
+  ["a", "Arcana"],
 ];
 
 const PASSIVE_ERROR_TEXT: Record<PassiveError, string> = {
@@ -34,8 +35,18 @@ const PASSIVE_ERROR_TEXT: Record<PassiveError, string> = {
   no_passive_points: "No unspent points",
 };
 
-function describeSkill(skill: SkillDefinition): string {
+function describeSkill(skill: SkillDefinition, level: number): string {
   const parts = [`${Math.round(skill.effectiveness * 100)}% effectiveness`, ...skill.modifiers.map(describeModifier)];
+  if (skill.spell !== undefined) {
+    const average = spellBaseDamage(level);
+    const types = Object.keys(skill.spell.damageSplit).join(" / ");
+    parts.unshift(
+      `base ${Math.round(average * (1 - SPELL_DAMAGE_SPREAD))}–${Math.round(average * (1 + SPELL_DAMAGE_SPREAD))} ${types} damage at level ${level}`,
+      `${(skill.spell.castTimeMs / 1000).toFixed(2)} s cast time`,
+      `${skill.spell.critChance}% base crit chance`,
+    );
+  }
+  if (skill.tags.includes("area")) parts.push("hits every monster in the pack");
   if (skill.chain !== undefined) {
     const less = -skill.chain.chainedHitMore;
     parts.push(`chains to ${skill.chain.additionalTargets} additional targets; chained hits deal ${less}% less damage`);
@@ -78,7 +89,7 @@ export function createSkillPanel(dispatch: Dispatch): Panel {
         active ? "active-row" : locked ? "muted" : undefined,
         el("td", undefined, skill.name),
         el("td", "muted", skill.tags.join(", ")),
-        el("td", undefined, describeSkill(skill)),
+        el("td", undefined, describeSkill(skill, character.level)),
         el("td", "num", locked ? "—" : `${preview.singleTargetDps.toFixed(1)} / ${preview.packDps.toFixed(1)}`),
         el("td", undefined, button(active ? "Active" : "Use", () => act({ type: "set_active_skill", skillId: id }), reason)),
       );
@@ -258,7 +269,11 @@ export function createSkillPanel(dispatch: Dispatch): Panel {
         el("div", "error", message),
         el("h2", undefined, "Active skill"),
         skillTable(state),
-        el("div", "muted", "* standardized estimate with the current supports; incompatible supports are dropped on switch."),
+        el(
+          "div",
+          "muted",
+          "* standardized estimate with the current supports, including bleed, ignite and shock; incompatible supports are dropped on switch. Spells ignore the weapon's damage, speed and crit chance.",
+        ),
         el("h2", undefined, "Supports"),
         supportSection(state),
         el("h2", undefined, "Passive tree"),

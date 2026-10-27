@@ -1,5 +1,6 @@
 import { INVENTORY_CAPACITY, LEVEL_GAP_MAX_LEVELS, LOG_CAPACITY, MAX_LEVEL, MAX_MAP_TIER } from "../data/balance";
 import { AFFIXES, getAffixDefinition } from "../data/affixes";
+import { AILMENTS, type AilmentId } from "../data/ailments";
 import { CURRENCIES } from "../data/currencies";
 import { AFFIX_CATEGORY_LIMITS } from "../data/drop-tables";
 import { ITEM_BASES } from "../data/item-bases";
@@ -378,7 +379,28 @@ function checkEncounter(c: Checker, v: unknown): void {
       c.nonNegInt(`${path}.maxLife`, m.maxLife);
       c.nonNegInt(`${path}.nextAttackAt`, m.nextAttackAt);
       c.bool(`${path}.alive`, m.alive);
+      if (m.ailments !== undefined) checkMonsterAilments(c, `${path}.ailments`, m.ailments);
     });
+  }
+}
+
+function checkMonsterAilments(c: Checker, path: string, v: unknown): void {
+  if (!c.obj(path, v)) return;
+  for (const [id, a] of Object.entries(v)) {
+    const ap = `${path}.${id}`;
+    if (!has(AILMENTS, id)) {
+      c.fail(ap, "unknown ailment");
+      continue;
+    }
+    if (!c.obj(ap, a)) continue;
+    if (AILMENTS[id as AilmentId].kind === "damaging") {
+      if (typeof a.damagePerTick !== "number" || !(a.damagePerTick >= 0)) c.fail(`${ap}.damagePerTick`, "expected a non-negative number");
+      c.nonNegInt(`${ap}.nextTickAt`, a.nextTickAt);
+      c.intInRange(`${ap}.ticksLeft`, a.ticksLeft, 1, 1_000_000);
+    } else {
+      if (typeof a.magnitude !== "number" || !(a.magnitude >= 0 && a.magnitude < 100)) c.fail(`${ap}.magnitude`, "expected a percentage below 100");
+      c.nonNegInt(`${ap}.endsAt`, a.endsAt);
+    }
   }
 }
 

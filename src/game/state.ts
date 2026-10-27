@@ -1,4 +1,5 @@
 import { BASE_LIFE, LOG_CAPACITY, SUPPORT_SLOT_LEVELS } from "../data/balance";
+import type { DamagingAilmentId } from "../data/ailments";
 import type { CurrencyId } from "../data/currencies";
 import { CURRENCIES } from "../data/currencies";
 import { STARTING_WEAPON_BASE } from "../data/item-bases";
@@ -38,7 +39,29 @@ export interface MonsterRuntime {
   rank?: EliteRank;
   /** Present exactly when `rank` is. */
   affixes?: MonsterAffixId[];
+  /** Absent = never afflicted (plan §6.8). */
+  ailments?: MonsterAilments;
 }
+
+/** A bleed or ignite; removed after its last tick. */
+export interface DamagingAilmentRuntime {
+  /** Before shock; each tick deals `max(1, floor(damagePerTick × shock))`. */
+  damagePerTick: number;
+  nextTickAt: number;
+  ticksLeft: number;
+}
+
+/** A chill or shock; active while `endsAt > simTimeMs`, and kept (inactive) afterwards. */
+export interface TimedAilmentRuntime {
+  /** Percent. */
+  magnitude: number;
+  endsAt: number;
+}
+
+export type MonsterAilments = Partial<Record<DamagingAilmentId, DamagingAilmentRuntime>> & {
+  chill?: TimedAilmentRuntime;
+  shock?: TimedAilmentRuntime;
+};
 
 /** Live encounter data. Runtime only: omitted from saves and rebuilt by the first `advance()`. */
 export interface EncounterRuntime {

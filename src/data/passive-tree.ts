@@ -4,7 +4,8 @@ export type PassiveNodeId =
   | "origin"
   | "m1" | "m2" | "m3" | "m4" | "m5" | "MN1" | "KS1"
   | "c1" | "c2" | "c3" | "c4" | "c5" | "c6" | "CN1" | "CN2"
-  | "b1" | "b2" | "b3" | "b4" | "b5" | "b6" | "b7" | "BN1" | "BN2";
+  | "b1" | "b2" | "b3" | "b4" | "b5" | "b6" | "b7" | "BN1" | "BN2"
+  | "a1" | "a2" | "a3" | "a4" | "AN1";
 
 export const PASSIVE_ROOT: PassiveNodeId = "origin";
 
@@ -18,7 +19,7 @@ export interface PassiveNodeDefinition {
 /** Authoritative topology (undirected). Any rendered layout is illustrative only. */
 export const PASSIVE_EDGES: [PassiveNodeId, PassiveNodeId][] = [
   // roots
-  ["origin", "m1"], ["origin", "c1"], ["origin", "b1"],
+  ["origin", "m1"], ["origin", "c1"], ["origin", "b1"], ["origin", "a1"],
   // Might
   ["m1", "m2"], ["m2", "m3"], ["m2", "m4"],
   ["m3", "MN1"], ["m3", "m5"], ["m4", "KS1"],
@@ -28,9 +29,12 @@ export const PASSIVE_EDGES: [PassiveNodeId, PassiveNodeId][] = [
   // Bastion
   ["b1", "b2"], ["b1", "b3"], ["b2", "b6"],
   ["b3", "b4"], ["b3", "BN1"], ["b4", "b5"], ["b5", "BN2"],
+  // Arcana (v0.6.0)
+  ["a1", "a2"], ["a1", "a3"], ["a2", "a4"], ["a3", "AN1"],
   // cross-links
   ["m1", "b7"], ["b6", "b7"],
   ["m4", "c4"],
+  ["a4", "c5"],
 ];
 
 export const PASSIVE_NODES: Record<PassiveNodeId, PassiveNodeDefinition> = {
@@ -111,6 +115,29 @@ export const PASSIVE_NODES: Record<PassiveNodeId, PassiveNodeDefinition> = {
       { stat: "resistance_max", kind: "flat", damageType: "fire", value: 3 },
       { stat: "resistance_max", kind: "flat", damageType: "cold", value: 3 },
       { stat: "resistance_max", kind: "flat", damageType: "lightning", value: 3 },
+    ],
+  },
+
+  a1: { id: "a1", name: "Spellweave", kind: "minor", modifiers: [{ stat: "damage", kind: "increased", tags: ["spell"], value: 12 }] },
+  a2: { id: "a2", name: "Quick Incantation", kind: "minor", modifiers: [{ stat: "cast_speed", kind: "increased", value: 6 }] },
+  a3: {
+    id: "a3",
+    name: "Affliction",
+    kind: "minor",
+    modifiers: [
+      { stat: "ailment_chance", kind: "flat", damageType: "fire", value: 8 },
+      { stat: "ailment_chance", kind: "flat", damageType: "cold", value: 8 },
+      { stat: "ailment_chance", kind: "flat", damageType: "lightning", value: 8 },
+    ],
+  },
+  a4: { id: "a4", name: "Arcane Flow", kind: "minor", modifiers: [{ stat: "damage", kind: "increased", tags: ["spell"], value: 12 }] },
+  AN1: {
+    id: "AN1",
+    name: "Malediction",
+    kind: "notable",
+    modifiers: [
+      { stat: "ailment_effect", kind: "increased", value: 30 },
+      { stat: "ailment_duration", kind: "increased", value: 20 },
     ],
   },
 };

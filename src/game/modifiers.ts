@@ -5,18 +5,23 @@ export type DamageType = (typeof DAMAGE_TYPES)[number];
 
 export const ELEMENTAL_TYPES: readonly DamageType[] = ["fire", "cold", "lightning"];
 
-export type Tag = DamageType | "elemental" | "attack" | "single_target" | "chain";
+export type Tag = DamageType | "elemental" | "attack" | "spell" | "single_target" | "chain" | "area";
 
 export const STAT_IDS = [
   // offense
   "added_damage",
   "damage",
   "attack_speed",
+  "cast_speed",
   "crit_chance",
   "crit_multiplier",
   "penetration",
   "gain_as_extra",
   "conversion",
+  // ailments: the damage type selects the ailment (see data/ailments.ts); none = every ailment
+  "ailment_chance",
+  "ailment_effect",
+  "ailment_duration",
   // defense
   "life_max",
   "armor",

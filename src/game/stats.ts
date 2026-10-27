@@ -115,16 +115,22 @@ function skillContext(build: PlayerBuild, stacks: Stacks): AggregateContext {
   return { tags: build.skill.tags, stacks };
 }
 
+/**
+ * Time between the player's uses of the active skill: attack speed on the weapon's rate for an
+ * attack, cast speed on the skill's cast time for a spell. Both share the 10 uses/s cap.
+ */
 export function attackIntervalMs(build: PlayerBuild, stacks: Stacks): number {
-  const result = aggregate(build.mods, "attack_speed", skillContext(build, stacks));
-  const aps = Math.min(MAX_ATTACKS_PER_SECOND, applyScalar(build.weapon.attacksPerSecond, result));
+  const spell = build.skill.spell;
+  const result = aggregate(build.mods, spell === undefined ? "attack_speed" : "cast_speed", skillContext(build, stacks));
+  const baseRate = spell === undefined ? build.weapon.attacksPerSecond : 1000 / spell.castTimeMs;
+  const aps = Math.min(MAX_ATTACKS_PER_SECOND, applyScalar(baseRate, result));
   return Math.round(1000 / aps);
 }
 
-/** Percent. */
+/** Percent. A spell uses its own base crit chance instead of the weapon's. */
 export function critChance(build: PlayerBuild, stacks: Stacks): number {
   const result = aggregate(build.mods, "crit_chance", skillContext(build, stacks));
-  return Math.min(CRIT_CHANCE_CAP, applyScalar(build.weapon.critChance, result));
+  return Math.min(CRIT_CHANCE_CAP, applyScalar(build.skill.spell?.critChance ?? build.weapon.critChance, result));
 }
 
 /** Percent. */

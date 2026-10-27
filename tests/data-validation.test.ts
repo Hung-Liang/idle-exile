@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { AFFIXES, TIER_ITEM_LEVELS } from "../src/data/affixes";
+import { AILMENTS, DAMAGING_AILMENT_IDS } from "../src/data/ailments";
 import { CURRENCIES } from "../src/data/currencies";
 import { AFFIX_CATEGORY_LIMITS, AFFIX_COUNT_WEIGHTS, DROP_TABLES, SALVAGE_YIELDS } from "../src/data/drop-tables";
 import { ITEM_BASES, STARTING_WEAPON_BASE } from "../src/data/item-bases";
 import { MAP_MODIFIERS } from "../src/data/map-modifiers";
 import { BOSSES, MONSTERS, type MonsterDefinition } from "../src/data/monsters";
 import { PASSIVE_EDGES, PASSIVE_NODES, PASSIVE_ROOT } from "../src/data/passive-tree";
-import { SKILLS } from "../src/data/skills";
+import { SKILLS, type SpellValues } from "../src/data/skills";
 import { STACKS } from "../src/data/stacks";
 import { SUPPORTS } from "../src/data/supports";
 import { ZONE_ORDER, ZONES } from "../src/data/zones";
@@ -25,6 +26,7 @@ import {
 
 const TABLES = {
   AFFIXES,
+  AILMENTS,
   CURRENCIES,
   ITEM_BASES,
   MAP_MODIFIERS,
@@ -36,6 +38,16 @@ const TABLES = {
   SUPPORTS,
   ZONES,
 };
+
+function checkSpell(id: string, spell: SpellValues): string[] {
+  const split = Object.entries(spell.damageSplit);
+  const total = split.reduce((sum, [, f]) => sum + f, 0);
+  return [
+    ...(Number.isInteger(spell.castTimeMs) && spell.castTimeMs >= 100 ? [] : [`skill ${id}: bad castTimeMs`]),
+    ...(spell.critChance > 0 && spell.critChance <= 100 ? [] : [`skill ${id}: bad critChance`]),
+    ...(Math.abs(total - 1) < 1e-9 && split.every(([, f]) => f > 0) ? [] : [`skill ${id}: damage split must be positive and sum to 1`]),
+  ];
+}
 
 function expectNoErrors(errors: string[]): void {
   expect(errors).toEqual([]);
@@ -59,6 +71,10 @@ describe("data: skills and supports", () => {
       ...(s.unlockLevel >= 1 && s.unlockLevel <= MAX_LEVEL ? [] : [`skill ${s.id}: bad unlockLevel`]),
       ...(s.effectiveness > 0 ? [] : [`skill ${s.id}: effectiveness must be positive`]),
       ...(s.chain === undefined || s.tags.includes("chain") ? [] : [`skill ${s.id}: chain mechanic without chain tag`]),
+      ...(s.tags.includes("attack") !== s.tags.includes("spell") ? [] : [`skill ${s.id}: needs exactly one of attack, spell`]),
+      ...((s.spell !== undefined) === s.tags.includes("spell") ? [] : [`skill ${s.id}: spell values without spell tag or vice versa`]),
+      ...(s.tags.includes("area") && s.tags.includes("chain") ? [`skill ${s.id}: area and chain are exclusive`] : []),
+      ...(s.spell === undefined ? [] : checkSpell(s.id, s.spell)),
     ]);
     expectNoErrors(errors);
   });
@@ -90,10 +106,10 @@ describe("data: passive tree", () => {
     expectNoErrors(checkGraph("PASSIVE_EDGES", Object.keys(PASSIVE_NODES), PASSIVE_EDGES, PASSIVE_ROOT));
   });
 
-  it("has 24 allocatable nodes plus the root", () => {
+  it("has 29 allocatable nodes plus the root", () => {
     const nodes = Object.values(PASSIVE_NODES);
     expect(nodes.filter((n) => n.kind === "root").map((n) => n.id)).toEqual([PASSIVE_ROOT]);
-    expect(nodes.filter((n) => n.kind !== "root")).toHaveLength(24);
+    expect(nodes.filter((n) => n.kind !== "root")).toHaveLength(29);
   });
 
   it("node modifiers are valid", () => {
@@ -265,6 +281,21 @@ describe("data: zones and maps", () => {
 
   it("stacks have a positive max", () => {
     expect(Object.values(STACKS).every((s) => s.max > 0)).toBe(true);
+  });
+});
+
+describe("data: ailments", () => {
+  it("each ailment has its own damage type, a positive duration and magnitude", () => {
+    const ailments = Object.values(AILMENTS);
+    expectNoErrors(checkRecordIds("AILMENTS", AILMENTS));
+    expect(new Set(ailments.map((a) => a.damageType)).size).toBe(ailments.length);
+    expect(ailments.every((a) => Number.isInteger(a.durationMs) && a.durationMs > 0 && a.magnitude > 0)).toBe(true);
+    expect(ailments.every((a) => a.maxMagnitude === undefined || (a.maxMagnitude >= a.magnitude && a.maxMagnitude < 100))).toBe(true);
+  });
+
+  it("lists exactly the damaging ailments, in definition order", () => {
+    expect(DAMAGING_AILMENT_IDS).toEqual(Object.values(AILMENTS).filter((a) => a.kind === "damaging").map((a) => a.id));
+    expect(Object.values(AILMENTS).every((a) => (a.kind === "damaging") === (a.maxMagnitude === undefined))).toBe(true);
   });
 });
 

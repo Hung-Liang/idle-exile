@@ -2,15 +2,29 @@ import type { CurrencyId } from "../data/currencies";
 import type { PassiveNodeId } from "../data/passive-tree";
 import type { SkillId } from "../data/skills";
 import type { SupportId } from "../data/supports";
-import { DEATHS_BEFORE_RETREAT, RESPAWN_MS, TRANSITION_LIFE_RECOVERY_PCT, TRANSITION_MS } from "../data/balance";
+import type { DamagingAilmentId } from "../data/ailments";
+import { DEATHS_BEFORE_RETREAT, DOT_TICK_MS, RESPAWN_MS, TRANSITION_LIFE_RECOVERY_PCT, TRANSITION_MS } from "../data/balance";
 import { STACKS, type StackId } from "../data/stacks";
 import type { ZoneId } from "../data/zones";
-import { mitigateHit, monsterStats, resolveHit, rollAttack, rollMonsterHit, type MonsterStats } from "./combat";
+import { ailmentStats, applyAilments, chilledIntervalMs, dotTickDamage, hasAilmentChance, shockPct } from "./ailments";
+import {
+  finalDamage,
+  hitPortions,
+  mitigateHit,
+  monsterStats,
+  rollAttack,
+  rollMonsterHit,
+  skillTargetCount,
+  sumHit,
+  type HitTarget,
+  type MonsterStats,
+} from "./combat";
 import { useCurrency, type CraftError } from "./crafting";
 import { ELITE_RANKS } from "../data/monster-affixes";
 import { createEncounter, monsterDisplayName, monsterModifiers } from "./encounters";
 import type { EquipSlot, ItemId } from "./equipment";
 import { nextScheduledEvent, type GameEvent } from "./events";
+import { nextFloat } from "./random";
 import { equipItem, salvageItem, salvageUnlocked, setItemLocked, unequipSlot, type InventoryError } from "./inventory";
 import { rollMonsterDrops } from "./loot";
 import { allocatePassive, resetPassives, type PassiveError } from "./passive-tree";
@@ -173,38 +187,63 @@ function clearEncounter(sim: Sim, encounter: EncounterRuntime): void {
 
 function playerAttack(sim: Sim, encounter: EncounterRuntime): void {
   const { state, build } = sim;
+  const now = state.simTimeMs;
   const alive = encounter.monsters.flatMap((m, i) => (m.alive ? [i] : []));
-  const targetCount = 1 + (build.skill.chain?.additionalTargets ?? 0);
-  const targets = alive.slice(0, targetCount);
+  const targets = alive.slice(0, skillTargetCount(build.skill));
 
   // Stacks gained by kills during this attack apply from the next attack on.
   const stacks = { ...encounter.stacks };
   const roll = rollAttack(build, stacks, state.rng.combat);
+  // The third draw exists only for builds with an ailment chance (plan §6.8).
+  const ailments = ailmentStats(build, stacks);
+  const ailmentRoll = hasAilmentChance(ailments) ? nextFloat(state.rng.combat) : null;
   const lifeOnHit = Math.floor(sim.defenses.lifeOnHit);
 
   targets.forEach((monsterIndex, hitIndex) => {
     const monster = encounter.monsters[monsterIndex]!;
     const stats = encounterMonsterStats(sim, encounter, monster);
-    const damage = resolveHit(
-      build,
-      roll,
-      stacks,
-      { armor: stats.armor, resistances: stats.resistances, lifePct: (monster.life / monster.maxLife) * 100 },
-      hitIndex > 0,
-    );
-    monster.life = Math.max(0, monster.life - damage);
+    const target: HitTarget = {
+      armor: stats.armor,
+      resistances: stats.resistances,
+      lifePct: (monster.life / monster.maxLife) * 100,
+      damageTakenMorePct: shockPct(monster, now),
+    };
+    const portions = hitPortions(build, roll, stacks, target, hitIndex > 0);
+    monster.life = Math.max(0, monster.life - finalDamage(sumHit(portions, target)));
     if (lifeOnHit > 0) {
       state.character.life = Math.min(sim.defenses.maxLife, state.character.life + lifeOnHit);
     }
     if (monster.life === 0) {
       onMonsterKilled(sim, encounter, monsterIndex);
+    } else if (ailmentRoll !== null) {
+      applyAilments(monster, ailments, portions, ailmentRoll, now);
     }
   });
 
   if (encounter.monsters.every((m) => !m.alive)) {
     clearEncounter(sim, encounter);
   } else {
-    encounter.player.nextAttackAt = state.simTimeMs + attackIntervalMs(sim.build, encounter.stacks);
+    encounter.player.nextAttackAt = now + attackIntervalMs(sim.build, encounter.stacks);
+  }
+}
+
+/** One bleed or ignite tick. A kill by the last tick of the pack clears the encounter like a hit. */
+function ailmentTick(sim: Sim, encounter: EncounterRuntime, monsterIndex: number, id: DamagingAilmentId): void {
+  const now = sim.state.simTimeMs;
+  const monster = encounter.monsters[monsterIndex]!;
+  const ailments = monster.ailments!;
+  const ailment = ailments[id]!;
+  monster.life = Math.max(0, monster.life - dotTickDamage(ailment, monster, now));
+  ailment.ticksLeft -= 1;
+  ailment.nextTickAt = now + DOT_TICK_MS;
+  if (ailment.ticksLeft <= 0) {
+    delete ailments[id];
+  }
+  if (monster.life === 0) {
+    onMonsterKilled(sim, encounter, monsterIndex);
+    if (encounter.monsters.every((m) => !m.alive)) {
+      clearEncounter(sim, encounter);
+    }
   }
 }
 
@@ -218,7 +257,7 @@ function monsterAttack(sim: Sim, encounter: EncounterRuntime, monsterIndex: numb
     resistanceMax: sim.defenses.resistanceMax,
   });
   state.character.life = Math.max(0, state.character.life - damage);
-  monster.nextAttackAt = state.simTimeMs + stats.attackIntervalMs;
+  monster.nextAttackAt = state.simTimeMs + chilledIntervalMs(stats.attackIntervalMs, monster, state.simTimeMs);
 
   if (state.character.life === 0) {
     playerDied(sim, encounter, stats.name);
@@ -283,6 +322,9 @@ export function advance(state: GameState, ms: number, options: AdvanceOptions = 
         break;
       case "player_attack":
         playerAttack(sim, encounter);
+        break;
+      case "ailment_tick":
+        ailmentTick(sim, encounter, next.monsterIndex, next.ailment);
         break;
       case "monster_attack":
         monsterAttack(sim, encounter, next.monsterIndex);

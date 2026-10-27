@@ -1,7 +1,7 @@
 // Headless balance simulation (plan §14.4) with fixed build presets.
 //
 //   npm run sim -- [--preset=<id>|all] [--zone=<id>] [--level=<n>] [--hours=<n>] [--seed=<n>|--seeds=<a>-<b>]
-//                  [--gear=auto|none] [--resume=<minutes>] [--progression]
+//                  [--gear=auto|none] [--craft] [--resume=<minutes>] [--progression]
 //
 // --preset=all runs every preset with the same options and prints a side-by-side summary.
 // Without --zone it runs the campaign from the start with auto-advance on (the --progression
@@ -13,6 +13,9 @@
 // With --gear=auto (default) dropped items are equipped by a tool-only heuristic: equip when
 // DPS or EHP improves without lowering the other by more than 5%. Unequipped items are then
 // salvaged so the inventory never overflows.
+// With --craft (requires --gear=auto) the heuristic also crafts: Graft on equipped Rares with
+// room for an affix, then Tumult (or Sever + Graft) on the best spare Rare of each item class until
+// it becomes an upgrade, a few attempts per check. Without it no currency is ever used.
 // With --resume=<minutes> (campaign only), a returning player checks every N minutes of sim
 // time and switches auto-advance back on after a retreat paused it, once the character level
 // is within RESUME_LEVEL_MARGIN of the area it retreated from.
@@ -29,12 +32,13 @@ import {
 import { DROP_TABLES } from "../data/drop-tables";
 import { BOSSES, MONSTERS } from "../data/monsters";
 import { CURRENCIES, type CurrencyId } from "../data/currencies";
+import { canApplyCurrency } from "../game/crafting";
 import { SKILLS } from "../data/skills";
 import { mapTier } from "../data/maps";
 import { ZONE_ORDER, ZONES, type ZoneId } from "../data/zones";
 import { advance, dispatch } from "../game/engine";
-import { itemBase, RARITIES, slotsForClass, type EquipSlot, type Rarity } from "../game/equipment";
-import { evaluateBuild, evaluateState, isUpgrade, withEquipment, type BuildEvaluation } from "../game/evaluate";
+import { EQUIP_SLOTS, itemBase, RARITIES, slotsForClass, type EquipSlot, type ItemClass, type ItemId, type Rarity } from "../game/equipment";
+import { evaluateBuild, evaluateState, improvesBuild, isUpgrade, withEquipment, type BuildEvaluation } from "../game/evaluate";
 import { describeItem, generateItem } from "../game/loot";
 import { createStreamState, weightedIndex } from "../game/random";
 import { collectBuild, computeMaxLife } from "../game/stats";
@@ -54,6 +58,8 @@ interface Options {
   /** --seeds: print one summary row per (preset, seed) instead of a full report. */
   sweep: boolean;
   autoGear: boolean;
+  /** --craft: the gear heuristic also uses Graft, Tumult and Sever. */
+  craft: boolean;
   /** Sim ms between re-enabling auto-advance; null = never. */
   resumeMs: number | null;
   /** --curve: print standardized on-level power versus the monster curves instead of simulating. */
@@ -70,7 +76,18 @@ const RESUME_LEVEL_MARGIN = 5;
 const CHUNK_MS = 10_000;
 
 function parseArgs(argv: readonly string[]): Options {
-  const options: Options = { presets: [PRESETS[0]!], zone: null, level: 1, hours: 8, seeds: [1], sweep: false, autoGear: true, resumeMs: null, curve: false };
+  const options: Options = {
+    presets: [PRESETS[0]!],
+    zone: null,
+    level: 1,
+    hours: 8,
+    seeds: [1],
+    sweep: false,
+    autoGear: true,
+    craft: false,
+    resumeMs: null,
+    curve: false,
+  };
   let progression = false;
   for (const arg of argv) {
     if (arg === "--progression") {
@@ -79,6 +96,10 @@ function parseArgs(argv: readonly string[]): Options {
     }
     if (arg === "--curve") {
       options.curve = true;
+      continue;
+    }
+    if (arg === "--craft") {
+      options.craft = true;
       continue;
     }
     const match = /^--([a-z]+)=(.*)$/.exec(arg);
@@ -135,6 +156,9 @@ function parseArgs(argv: readonly string[]): Options {
         throw new Error(`unknown option --${key}`);
     }
   }
+  if (options.craft && !options.autoGear) {
+    throw new Error("--craft needs --gear=auto");
+  }
   if (progression && (options.zone !== null || options.level !== 1)) {
     throw new Error("--progression starts the campaign at level 1; it cannot be combined with --zone or --level");
   }
@@ -156,31 +180,95 @@ function assertValid(state: GameState, what: string): void {
   }
 }
 
+/** Spare-base crafts (Tumult, or Sever + Graft) per spare per gear check. */
+const CRAFT_ATTEMPTS_PER_CHECK = 3;
+/** Bounds the equip / craft loop of one gear check. */
+const MAX_GEAR_PASSES = 4;
+
+type CurrencyCounts = Record<CurrencyId, number>;
+
+function useCurrency(state: GameState, currencyId: CurrencyId, itemId: ItemId, used: CurrencyCounts): void {
+  const result = dispatch(state, { type: "use_currency", currencyId, itemId });
+  if (!result.ok) throw new Error(`autoCraft: ${currencyId} rejected (${result.reason})`);
+  used[currencyId] += 1;
+}
+
+function canUse(state: GameState, currencyId: CurrencyId, itemId: ItemId): boolean {
+  return state.inventory.currency[currencyId] > 0 && canApplyCurrency(state.inventory.items[itemId]!, currencyId);
+}
+
 /**
- * Tool-only gear heuristic: repeatedly equips the unequipped item with the best DPS × EHP gain
- * that passes `isUpgrade`, then salvages everything left. All changes go through
- * `dispatch`, like player actions.
+ * Tool-only crafting heuristic. Graft goes to equipped Rares first (an added affix never lowers
+ * DPS or EHP), weapon first. Then the best spare Rare of each item class (highest item level the
+ * character can wear) is crafted until it would be an upgrade: Graft (after Sever when it is full)
+ * while Graft is left, otherwise Tumult. Returns whether a spare became an upgrade.
  */
-function autoGear(state: GameState): string[] {
-  const equipped: string[] = [];
-  for (;;) {
-    const current = evaluateState(state);
-    let best: { itemId: string; slot: EquipSlot; score: number } | null = null;
-    for (const itemId of state.inventory.order) {
-      const item = state.inventory.items[itemId]!;
-      const base = itemBase(item);
-      if (base.requiredLevel > state.character.level) continue;
-      for (const slot of slotsForClass(base.itemClass)) {
-        const candidate = evaluateState(withEquipment(state, slot, itemId));
-        if (!isUpgrade(current, candidate)) continue;
-        const score = (candidate.singleTargetDps / current.singleTargetDps) * (candidate.ehp / current.ehp);
-        if (best === null || score > best.score) best = { itemId, slot, score };
+function autoCraft(state: GameState, used: CurrencyCounts): boolean {
+  for (const slot of EQUIP_SLOTS) {
+    const itemId = state.character.equipment[slot];
+    if (itemId !== null && canUse(state, "graft_shard", itemId)) useCurrency(state, "graft_shard", itemId, used);
+  }
+
+  const spares = new Map<ItemClass, ItemId>();
+  for (const itemId of state.inventory.order) {
+    const item = state.inventory.items[itemId]!;
+    const base = itemBase(item);
+    if (item.rarity !== "rare" || base.requiredLevel > state.character.level) continue;
+    const best = spares.get(base.itemClass);
+    if (best === undefined || item.itemLevel > state.inventory.items[best]!.itemLevel) spares.set(base.itemClass, itemId);
+  }
+
+  let upgraded = false;
+  for (const itemId of spares.values()) {
+    for (let attempt = 0; ; attempt++) {
+      if (improvesBuild(state, state.inventory.items[itemId]!)) {
+        upgraded = true;
+        break;
+      }
+      if (attempt === CRAFT_ATTEMPTS_PER_CHECK) break;
+      if (canUse(state, "graft_shard", itemId)) {
+        useCurrency(state, "graft_shard", itemId, used);
+      } else if (state.inventory.currency.graft_shard > 0 && canUse(state, "sever_shard", itemId)) {
+        useCurrency(state, "sever_shard", itemId, used);
+        if (canUse(state, "graft_shard", itemId)) useCurrency(state, "graft_shard", itemId, used);
+      } else if (canUse(state, "tumult_shard", itemId)) {
+        useCurrency(state, "tumult_shard", itemId, used);
+      } else {
+        break;
       }
     }
-    if (best === null) break;
-    equipped.push(describeItem(state.inventory.items[best.itemId]!));
-    const result = dispatch(state, { type: "equip_item", itemId: best.itemId, slot: best.slot });
-    if (!result.ok) throw new Error(`autoGear: equip rejected (${result.reason})`);
+  }
+  return upgraded;
+}
+
+/**
+ * Tool-only gear heuristic: repeatedly equips the unequipped item with the best DPS × EHP gain
+ * that passes `isUpgrade`, optionally crafts (`autoCraft`) and equips again, then salvages
+ * everything left. All changes go through `dispatch`, like player actions.
+ */
+function autoGear(state: GameState, used: CurrencyCounts | null = null): string[] {
+  const equipped: string[] = [];
+  for (let pass = 0; pass < MAX_GEAR_PASSES; pass++) {
+    for (;;) {
+      const current = evaluateState(state);
+      let best: { itemId: string; slot: EquipSlot; score: number } | null = null;
+      for (const itemId of state.inventory.order) {
+        const item = state.inventory.items[itemId]!;
+        const base = itemBase(item);
+        if (base.requiredLevel > state.character.level) continue;
+        for (const slot of slotsForClass(base.itemClass)) {
+          const candidate = evaluateState(withEquipment(state, slot, itemId));
+          if (!isUpgrade(current, candidate)) continue;
+          const score = (candidate.singleTargetDps / current.singleTargetDps) * (candidate.ehp / current.ehp);
+          if (best === null || score > best.score) best = { itemId, slot, score };
+        }
+      }
+      if (best === null) break;
+      equipped.push(describeItem(state.inventory.items[best.itemId]!));
+      const result = dispatch(state, { type: "equip_item", itemId: best.itemId, slot: best.slot });
+      if (!result.ok) throw new Error(`autoGear: equip rejected (${result.reason})`);
+    }
+    if (used === null || !autoCraft(state, used)) break;
   }
   for (const itemId of [...state.inventory.order]) {
     const result = dispatch(state, { type: "salvage_item", itemId });
@@ -286,6 +374,7 @@ function simulate(options: Options, preset: BuildPreset, seed: number): { lines:
   let lootArrived = false;
   const itemsByRarity: Record<Rarity, number> = { normal: 0, magic: 0, rare: 0, unique: 0 };
   const currencyGained = Object.fromEntries(Object.keys(CURRENCIES).map((id) => [id, 0])) as Record<CurrencyId, number>;
+  const currencyUsed = options.craft ? ({ ...currencyGained } as CurrencyCounts) : null;
   let overflow = 0;
   let upgrades = 0;
   let lastResumeAt = 0;
@@ -391,7 +480,7 @@ function simulate(options: Options, preset: BuildPreset, seed: number): { lines:
       resumes += 1;
     }
     if (options.autoGear && (lootArrived || levelledUp)) {
-      upgrades += autoGear(state).length;
+      upgrades += autoGear(state, currencyUsed).length;
     }
     levelledUp = false;
     lootArrived = false;
@@ -407,7 +496,7 @@ function simulate(options: Options, preset: BuildPreset, seed: number): { lines:
   const finalActivity = activity.kind === "zone" ? ZONES[activity.zoneId].name : `map tier ${activity.tier}`;
   const supports = character.supportIds.filter((id) => id !== null).join(", ") || "none";
   const lines = [
-    `sim-report — build: ${preset.name} (gear: ${options.autoGear ? "auto-equip drops" : "starting weapon only"})`,
+    `sim-report — build: ${preset.name} (gear: ${options.autoGear ? `auto-equip drops${options.craft ? " + craft" : ""}` : "starting weapon only"})`,
     `seed ${seed}, ${options.hours} h, ${options.zone === null ? "campaign from start" : `farming ${ZONES[options.zone].name}`}`,
     ``,
     `avg normal clear time:  ${seconds(mean(clearTimes))} (${clearTimes.length} encounters)`,
@@ -428,6 +517,13 @@ function simulate(options: Options, preset: BuildPreset, seed: number): { lines:
       .map(([id, n]) => `${CURRENCIES[id as CurrencyId].name} ${perHour(n)}`)
       .join(", ")}`,
     `gear upgrades equipped: ${upgrades}`,
+    ...(currencyUsed === null
+      ? []
+      : [
+          `currency used / hour:   ${(["graft_shard", "tumult_shard", "sever_shard"] as const)
+            .map((id) => `${CURRENCIES[id].name} ${perHour(currencyUsed[id])}`)
+            .join(", ")}`,
+        ]),
     ...(options.resumeMs === null ? [] : [`auto-advance resumed:  ${resumes} times`]),
     `final DPS (single/pack): ${evaluation.singleTargetDps.toFixed(1)} / ${evaluation.packDps.toFixed(1)} (standardized estimate)`,
     `final EHP:              ${evaluation.ehp.toFixed(0)} (max life ${evaluation.defenses.maxLife}, armor ${Math.round(evaluation.defenses.armor)})`,
@@ -634,7 +730,7 @@ function run(options: Options): void {
     const summaries = options.presets.flatMap((preset) => options.seeds.map((seed) => simulate(options, preset, seed).summary));
     console.log(
       [
-        `sim-report — seeds ${options.seeds[0]}–${options.seeds.at(-1)}, ${options.hours} h, ${scope}, level ${options.level}${resume}`,
+        `sim-report — seeds ${options.seeds[0]}–${options.seeds.at(-1)}, ${options.hours} h, ${scope}, level ${options.level}${options.craft ? ", craft" : ""}${resume}`,
         ``,
         ...seedSweepLines(summaries),
       ].join("\n"),
@@ -649,7 +745,7 @@ function run(options: Options): void {
   const summaries = options.presets.map((preset) => simulate(options, preset, seed).summary);
   console.log(
     [
-      `sim-report — all presets, seed ${seed}, ${options.hours} h, ${scope}, level ${options.level}, gear ${options.autoGear ? "auto" : "none"}${resume}`,
+      `sim-report — all presets, seed ${seed}, ${options.hours} h, ${scope}, level ${options.level}, gear ${options.autoGear ? (options.craft ? "auto + craft" : "auto") : "none"}${resume}`,
       `(DPS / EHP are standardized estimates of the final build)`,
       ``,
       ...comparisonLines(summaries),

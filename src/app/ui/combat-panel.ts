@@ -1,6 +1,8 @@
+import { AILMENTS } from "../../data/ailments";
 import { MAP_MODIFIERS } from "../../data/map-modifiers";
 import { ZONES, type ZoneId } from "../../data/zones";
 import { LEVEL_GAP_PCT_PER_LEVEL } from "../../data/balance";
+import { activeAilments } from "../../game/ailments";
 import { monsterDisplayName } from "../../game/encounters";
 import type { ActionResult, PlayerAction } from "../../game/engine";
 import { blockedAutoAdvance } from "../../game/progression";
@@ -224,7 +226,8 @@ export function createCombatPanel(dispatch: (action: PlayerAction) => ActionResu
           b.root.classList.toggle("slain", !m.alive);
           b.root.classList.toggle("elite-magic", m.rank === "magic");
           b.root.classList.toggle("elite-rare", m.rank === "rare");
-          b.set(m.life, m.maxLife, name, m.alive ? `${m.life} / ${m.maxLife}` : "slain");
+          const ailments = m.alive ? activeAilments(m, state.simTimeMs).map((id) => AILMENTS[id].name) : [];
+          b.set(m.life, m.maxLife, ailments.length === 0 ? name : `${name} · ${ailments.join(", ")}`, m.alive ? `${m.life} / ${m.maxLife}` : "slain");
         }
       });
 

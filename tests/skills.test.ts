@@ -25,9 +25,15 @@ describe("supportIncompatibility", () => {
   it("follows the requires / excludes tags of plan §7.2", () => {
     expect(supportIncompatibility("heavy_strike", "focused_blow")).toBeNull();
     expect(supportIncompatibility("arc_pulse", "focused_blow")).toBe("requires single_target");
+    expect(supportIncompatibility("fireball", "brute_force")).toBe("requires attack");
+    expect(supportIncompatibility("heavy_strike", "concentrated_power")).toBe("requires spell");
+    expect(supportIncompatibility("ice_nova", "malice")).toBeNull();
     for (const skill of Object.keys(SKILLS) as SkillId[]) {
+      const tags = SKILLS[skill].tags;
       for (const support of Object.keys(SUPPORTS) as SupportId[]) {
-        if (support !== "focused_blow") expect(supportIncompatibility(skill, support)).toBeNull();
+        const { requiresTags, excludesTags } = SUPPORTS[support];
+        const compatible = requiresTags.every((t) => tags.includes(t)) && !excludesTags.some((t) => tags.includes(t));
+        expect(supportIncompatibility(skill, support) === null).toBe(compatible);
       }
     }
   });

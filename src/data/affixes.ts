@@ -9,7 +9,6 @@ export interface AffixModifierDefinition {
   kind: ModKind;
   damageType?: DamageType;
   local?: boolean;
-  /** Used by unique lines only. */
   tags?: Tag[];
   /** Used by unique lines only. */
   condition?: Condition;
@@ -141,6 +140,15 @@ const GROUPS: GroupSpec[] = [
     modifier: { stat: "damage", kind: "increased" },
     ranges: [[8, 12], [13, 18], [19, 25], [26, 32]],
   },
+  // Spell affixes are global, so a weapon helps spells through its affixes only (v0.6.0). The
+  // amulet's damage_inc already applies to spells.
+  {
+    group: "spell_damage",
+    category: "prefix",
+    itemClasses: ["weapon"],
+    modifier: { stat: "damage", kind: "increased", tags: ["spell"] },
+    ranges: [[15, 24], [25, 39], [40, 59], [60, 79]],
+  },
 
   // --- suffixes ---
   {
@@ -155,6 +163,21 @@ const GROUPS: GroupSpec[] = [
     category: "suffix",
     itemClasses: ["gloves", "ring"],
     modifier: { stat: "attack_speed", kind: "increased" },
+    ranges: [[3, 5], [6, 8], [9, 11], [12, 14]],
+  },
+  {
+    idPrefix: "cast_speed_weapon",
+    group: "cast_speed",
+    category: "suffix",
+    itemClasses: ["weapon"],
+    modifier: { stat: "cast_speed", kind: "increased" },
+    ranges: [[5, 7], [8, 11], [12, 15], [16, 20]],
+  },
+  {
+    group: "cast_speed",
+    category: "suffix",
+    itemClasses: ["amulet", "ring"],
+    modifier: { stat: "cast_speed", kind: "increased" },
     ranges: [[3, 5], [6, 8], [9, 11], [12, 14]],
   },
   {

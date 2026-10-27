@@ -1,7 +1,7 @@
 import { DAMAGE_TYPES, MOD_KINDS, STAT_IDS, type ModifierSpec, type Tag } from "../../src/game/modifiers";
 import { STACKS } from "../../src/data/stacks";
 
-const VALID_TAGS: readonly Tag[] = [...DAMAGE_TYPES, "elemental", "attack", "single_target", "chain"];
+const VALID_TAGS: readonly Tag[] = [...DAMAGE_TYPES, "elemental", "attack", "spell", "single_target", "chain", "area"];
 
 /** Stats whose modifiers are meaningless without a damage type. */
 const STATS_REQUIRING_DAMAGE_TYPE = new Set<string>([

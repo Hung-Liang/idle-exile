@@ -4,7 +4,8 @@ import { el } from "./dom";
 
 const ESTIMATE_TOOLTIP = (level: number) =>
   `Standardized estimate, not a combat guarantee. Reference: monster level ${level}, 0 armor, 0 resistance, ` +
-  `3-target pack, damage mix 40% physical / 15% each fire, cold, lightning, chaos.`;
+  `3-target pack, damage mix 40% physical / 15% each fire, cold, lightning, chaos. ` +
+  `DPS includes bleed, ignite and shock weighted by their expected uptime; chill is not included.`;
 
 interface StatRow {
   label: string;
@@ -17,13 +18,14 @@ interface StatRow {
 const STAT_ROWS: StatRow[] = [
   { label: "Single-target DPS", get: (e) => e.singleTargetDps, digits: 1, estimate: true },
   { label: "Pack DPS", get: (e) => e.packDps, digits: 1, estimate: true },
+  { label: "Ailment DPS", get: (e) => e.ailmentDps, digits: 1, estimate: true },
   { label: "EHP", get: (e) => e.ehp, digits: 0, estimate: true },
   { label: "Max life", get: (e) => e.defenses.maxLife, digits: 0 },
   { label: "Armor", get: (e) => e.defenses.armor, digits: 0 },
   ...DAMAGE_TYPES.filter((t) => t !== "physical").map(
     (t): StatRow => ({ label: `${t[0]!.toUpperCase()}${t.slice(1)} res`, get: (e) => e.defenses.resistances[t], digits: 0, suffix: "%" }),
   ),
-  { label: "Attacks / s", get: (e) => e.attacksPerSecond, digits: 2 },
+  { label: "Attacks or casts / s", get: (e) => e.attacksPerSecond, digits: 2 },
   { label: "Crit chance", get: (e) => e.critChance, digits: 1, suffix: "%" },
   { label: "Crit multiplier", get: (e) => e.critMultiplier, digits: 0, suffix: "%" },
 ];

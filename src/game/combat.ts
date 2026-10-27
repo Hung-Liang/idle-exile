@@ -11,8 +11,11 @@ import {
   MONSTER_DAMAGE_VARIANCE,
   RESISTANCE_DEFAULT_MAX,
   RESISTANCE_MIN,
+  spellBaseDamage,
+  SPELL_DAMAGE_SPREAD,
 } from "../data/balance";
 import { getMonsterDefinition } from "../data/monsters";
+import type { SkillDefinition } from "../data/skills";
 import { aggregate, applyScalar, DAMAGE_TYPES, type AggregateContext, type DamageType, type Modifier } from "./modifiers";
 import { nextChance, nextFloat, type RngState } from "./random";
 import { critChance, critMultiplier, damageTags, type PlayerBuild, type Stacks } from "./stats";
@@ -145,11 +148,19 @@ export function attackPortions(build: PlayerBuild, stacks: Stacks, t: number): D
   const { skill, mods } = build;
   const typed = (type: DamageType): AggregateContext => ({ tags: damageTags(skill, type), damageType: type, stacks });
 
-  // 1. Base: weapon (local-adjusted) damage plus global added damage per type.
+  // 1. Base: weapon (local-adjusted) damage for an attack, or the level's spell damage split by
+  // the skill for a spell, plus global added damage per type.
   const ranges = {} as Record<DamageType, [number, number]>;
+  const spellAverage = skill.spell === undefined ? 0 : spellBaseDamage(build.level);
   for (const type of DAMAGE_TYPES) {
     const [addMin, addMax] = aggregate(mods, "added_damage", typed(type)).flatRange;
-    const base = type === "physical" ? build.weapon.physical : (build.weapon.added?.[type] ?? [0, 0]);
+    let base: readonly [number, number];
+    if (skill.spell !== undefined) {
+      const average = spellAverage * (skill.spell.damageSplit[type] ?? 0);
+      base = [average * (1 - SPELL_DAMAGE_SPREAD), average * (1 + SPELL_DAMAGE_SPREAD)];
+    } else {
+      base = type === "physical" ? build.weapon.physical : (build.weapon.added?.[type] ?? [0, 0]);
+    }
     ranges[type] = [base[0] + addMin, base[1] + addMax];
   }
 
@@ -209,18 +220,29 @@ export function rollAttack(build: PlayerBuild, stacks: Stacks, rng: RngState): A
 export interface HitTarget extends Defender {
   /** Target's life percentage before this hit. */
   lifePct: number;
+  /** Percent more damage taken, e.g. from shock (plan §6.8); missing = 0. */
+  damageTakenMorePct?: number;
 }
 
-/** Per-target part of the pipeline: steps 6 and 8 of plan §6.2, before the final floor. */
-export function hitDamage(
+/** How many living monsters one use of the skill hits: all for area, 1 + chains for chain, else 1. */
+export function skillTargetCount(skill: SkillDefinition): number {
+  if (skill.tags.includes("area")) return Infinity;
+  return 1 + (skill.chain?.additionalTargets ?? 0);
+}
+
+/**
+ * Per-target part of the pipeline: steps 6 and 8 of plan §6.2 per type, after mitigation and
+ * before the target's damage-taken modifier and the final floor. Damaging ailments scale from these.
+ */
+export function hitPortions(
   build: PlayerBuild,
   roll: AttackRoll,
   stacks: Stacks,
   target: HitTarget,
   chained: boolean,
-): number {
+): DamagePortions {
   const { skill, mods } = build;
-  let sum = 0;
+  const result = emptyPortions();
   for (const type of DAMAGE_TYPES) {
     let value = roll.portions[type];
     if (value <= 0) {
@@ -236,9 +258,29 @@ export function hitDamage(
       value *= 1 + skill.chain.chainedHitMore / 100;
     }
     const penetration = aggregate(mods, "penetration", ctx).flat;
-    sum += mitigatePortion(type, value, target, penetration);
+    result[type] = mitigatePortion(type, value, target, penetration);
   }
-  return sum;
+  return result;
+}
+
+/** The hit's total after mitigation and the target's damage-taken modifier, before the final floor. */
+export function sumHit(portions: DamagePortions, target: HitTarget): number {
+  let sum = 0;
+  for (const type of DAMAGE_TYPES) {
+    sum += portions[type];
+  }
+  return sum * (1 + (target.damageTakenMorePct ?? 0) / 100);
+}
+
+/** Per-target part of the pipeline: steps 6 and 8 of plan §6.2, before the final floor. */
+export function hitDamage(
+  build: PlayerBuild,
+  roll: AttackRoll,
+  stacks: Stacks,
+  target: HitTarget,
+  chained: boolean,
+): number {
+  return sumHit(hitPortions(build, roll, stacks, target, chained), target);
 }
 
 /** Steps 6 and 8 of plan §6.2. Returns the final integer damage. */

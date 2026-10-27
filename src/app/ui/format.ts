@@ -1,4 +1,5 @@
 import { getAffixDefinition, isUniqueAffix } from "../../data/affixes";
+import { AILMENTS } from "../../data/ailments";
 import { UNIQUES } from "../../data/uniques";
 import { affixModifierSpecs } from "../../game/affixes";
 import { itemBase, resolveItem, type ItemInstance, type RolledAffix } from "../../game/equipment";
@@ -15,8 +16,16 @@ export function describeModifier(mod: ModifierSpec): string {
   return text;
 }
 
+/** E.g. "ignite" for a fire `ailment_*` modifier; "ailments" without a damage type. */
+function ailmentName(mod: ModifierSpec): string {
+  const ailment = Object.values(AILMENTS).find((a) => a.damageType === mod.damageType);
+  return ailment === undefined ? "ailments" : ailment.id;
+}
+
 function describeModifierValue(mod: ModifierSpec): string {
-  const type = mod.damageType === undefined ? "" : `${mod.damageType} `;
+  // Damage types and tags narrow what the modifier applies to, e.g. "spell damage", "elemental damage".
+  const qualifiers = [...(mod.damageType === undefined ? [] : [mod.damageType]), ...(mod.tags ?? [])];
+  const type = qualifiers.map((q) => `${q.replaceAll("_", " ")} `).join("");
   const v = mod.value;
   if (Array.isArray(v)) {
     return mod.stat === "added_damage" ? `Adds ${v[0]}–${v[1]} ${type}damage` : `${mod.stat} ${v[0]}–${v[1]}`;
@@ -29,6 +38,16 @@ function describeModifierValue(mod: ModifierSpec): string {
       return `${scaled} ${type}damage`;
     case "attack_speed":
       return `${scaled} attack speed`;
+    case "cast_speed":
+      return `${scaled} cast speed`;
+    case "ailment_chance":
+      return mod.damageType === "physical"
+        ? `${signed}% chance to cause bleeding`
+        : `${signed}% chance to ${mod.damageType === undefined ? "inflict ailments" : ailmentName(mod)}`;
+    case "ailment_effect":
+      return `${scaled} effect of ${ailmentName(mod)}`;
+    case "ailment_duration":
+      return `${scaled} duration of ${ailmentName(mod)}`;
     case "crit_chance":
       return mod.kind === "flat" ? `${signed}% critical strike chance` : `${scaled} critical strike chance`;
     case "crit_multiplier":
@@ -44,9 +63,9 @@ function describeModifierValue(mod: ModifierSpec): string {
     case "resistance_max":
       return `${signed}% maximum ${type}resistance`;
     case "conversion":
-      return `${fmt(v)}% of physical damage converted to ${type.trim()}`;
+      return `${fmt(v)}% of physical damage converted to ${mod.damageType}`;
     case "gain_as_extra":
-      return `Gain ${fmt(v)}% of physical damage as extra ${type.trim()}`;
+      return `Gain ${fmt(v)}% of physical damage as extra ${mod.damageType}`;
     case "penetration":
       return `${type}damage penetrates ${fmt(v)}% resistance`;
     case "life_recovery_on_clear":

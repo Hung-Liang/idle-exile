@@ -1,3 +1,4 @@
+import { DAMAGING_AILMENT_IDS, type DamagingAilmentId } from "../data/ailments";
 import type { CurrencyId } from "../data/currencies";
 import type { PassiveNodeId } from "../data/passive-tree";
 import type { SkillId } from "../data/skills";
@@ -30,21 +31,32 @@ export type GameEvent =
 export type ScheduledEvent =
   | { kind: "phase_end"; time: number }
   | { kind: "player_attack"; time: number }
+  | { kind: "ailment_tick"; time: number; monsterIndex: number; ailment: DamagingAilmentId }
   | { kind: "monster_attack"; time: number; monsterIndex: number };
 
 /**
  * Selects the earliest currently valid event, recomputed from state every time (plan §4.1).
- * Ties: encounter start / respawn, then the player attack, then monsters in ascending index.
- * Phase-end events only exist outside `fighting` and attacks only inside it, so the first
- * tie-break rule never competes with the others.
+ * Ties: encounter start / respawn, then the player attack, then ailment ticks (ascending monster
+ * index, bleed before ignite), then monsters in ascending index. Phase-end events only exist
+ * outside `fighting` and the others only inside it, so the first tie-break rule never competes
+ * with the others.
  */
 export function nextScheduledEvent(encounter: EncounterRuntime): ScheduledEvent | null {
   if (encounter.phase !== "fighting") {
     return { kind: "phase_end", time: encounter.phaseEndsAt };
   }
+  // Candidates are visited in tie-break order and replace the best only when strictly earlier.
   let best: ScheduledEvent = { kind: "player_attack", time: encounter.player.nextAttackAt };
   encounter.monsters.forEach((monster, monsterIndex) => {
-    // Strictly earlier only: equal times keep the player or the lower monster index.
+    if (!monster.alive || monster.ailments === undefined) return;
+    for (const ailment of DAMAGING_AILMENT_IDS) {
+      const tick = monster.ailments[ailment];
+      if (tick !== undefined && tick.nextTickAt < best.time) {
+        best = { kind: "ailment_tick", time: tick.nextTickAt, monsterIndex, ailment };
+      }
+    }
+  });
+  encounter.monsters.forEach((monster, monsterIndex) => {
     if (monster.alive && monster.nextAttackAt < best.time) {
       best = { kind: "monster_attack", time: monster.nextAttackAt, monsterIndex };
     }

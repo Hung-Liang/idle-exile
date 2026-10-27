@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SKILLS, type SkillId } from "../src/data/skills";
-import { LEVEL_GAP_MAX_LEVELS, LEVEL_GAP_PCT_PER_LEVEL } from "../src/data/balance";
+import { LEVEL_GAP_MAX_LEVELS, LEVEL_GAP_PCT_PER_LEVEL, spellBaseDamage, SPELL_DAMAGE_SPREAD } from "../src/data/balance";
 import {
   effectiveResistance,
   finalDamage,
@@ -12,6 +12,7 @@ import {
   resolveHit,
   rollAttack,
   rollMonsterHit,
+  skillTargetCount,
 } from "../src/game/combat";
 import type { Modifier, ModifierSpec } from "../src/game/modifiers";
 import { createStreamState, nextFloat, type RngState } from "../src/game/random";
@@ -216,5 +217,44 @@ describe("level gap", () => {
     expect(gapped.maxLife).toBe(Math.round(monsterStats("brute", 20).maxLife * (1 + pct / 100)));
     expect(gapped.damagePerHit).toBeCloseTo(plain.damagePerHit * (1 + pct / 100));
     expect(gapped.armor).toBe(plain.armor);
+  });
+});
+
+describe("spells", () => {
+  it("roll the level's spell damage split by the skill and ignore the weapon", () => {
+    const rng = createStreamState(3, "combat");
+    const [t] = peekDraws(rng);
+    const b = { ...build("fireball", [{ stat: "added_damage", kind: "flat", damageType: "cold", value: [2, 4] }]), level: 20 };
+    const roll = rollAttack(b, {}, rng);
+    const average = spellBaseDamage(20);
+    const [min, max] = [average * (1 - SPELL_DAMAGE_SPREAD), average * (1 + SPELL_DAMAGE_SPREAD)];
+    expect(roll.portions.fire).toBeCloseTo((min + t * (max - min)) * SKILLS.fireball.effectiveness);
+    expect(roll.portions.cold).toBeCloseTo((2 + t * 2) * SKILLS.fireball.effectiveness);
+    expect(roll.portions.physical).toBe(0);
+  });
+
+  it("use cast speed on the cast time, not attack speed, and their own crit chance", () => {
+    const b = build("fireball", [
+      { stat: "attack_speed", kind: "increased", value: 100 },
+      { stat: "cast_speed", kind: "increased", value: 25 },
+    ], { attacksPerSecond: 3, critChance: 50 });
+    expect(attackIntervalMs(b, {})).toBe(Math.round(SKILLS.fireball.spell!.castTimeMs / 1.25));
+    expect(critChance(b, {})).toBe(SKILLS.fireball.spell!.critChance);
+    expect(attackIntervalMs(build("heavy_strike", [{ stat: "cast_speed", kind: "increased", value: 100 }]), {})).toBe(Math.round(1000 / 0.8));
+  });
+
+  it("match spell-tagged damage modifiers only for spells", () => {
+    const spellDamage: ModifierSpec = { stat: "damage", kind: "increased", tags: ["spell"], value: 100 };
+    const roll = { portions: { physical: 10, fire: 10, cold: 0, lightning: 0, chaos: 0 }, crit: false, critMultiplier: 150 };
+    expect(resolveHit(build("fireball", [spellDamage]), roll, {}, noDefense, false)).toBe(40);
+    expect(resolveHit(build("heavy_strike", [spellDamage]), roll, {}, noDefense, false)).toBe(20);
+  });
+});
+
+describe("skillTargetCount", () => {
+  it("is every monster for area skills, 1 + chains for chain skills, 1 otherwise", () => {
+    expect(skillTargetCount(SKILLS.ice_nova)).toBe(Infinity);
+    expect(skillTargetCount(SKILLS.arc_pulse)).toBe(3);
+    expect(skillTargetCount(SKILLS.fireball)).toBe(1);
   });
 });

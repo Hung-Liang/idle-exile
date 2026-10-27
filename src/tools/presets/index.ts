@@ -6,6 +6,7 @@ import { unspentPassivePoints } from "../../game/passive-tree";
 import { supportIncompatibility } from "../../game/skills";
 import type { GameState } from "../../game/state";
 import { ARC_PULSE_KEEN_EDGE } from "./arc-pulse-keen-edge";
+import { FIREBALL_IGNITE } from "./fireball-ignite";
 import { HEAVY_STRIKE_BRUTE_FORCE } from "./heavy-strike-brute-force";
 import { RAPID_ASSAULT_BASTION } from "./rapid-assault-bastion";
 
@@ -21,7 +22,7 @@ export interface BuildPreset {
   passiveOrder: PassiveNodeId[];
 }
 
-export const PRESETS: readonly BuildPreset[] = [HEAVY_STRIKE_BRUTE_FORCE, ARC_PULSE_KEEN_EDGE, RAPID_ASSAULT_BASTION];
+export const PRESETS: readonly BuildPreset[] = [HEAVY_STRIKE_BRUTE_FORCE, ARC_PULSE_KEEN_EDGE, RAPID_ASSAULT_BASTION, FIREBALL_IGNITE];
 
 function run(state: GameState, action: PlayerAction): void {
   const result = dispatch(state, action);
