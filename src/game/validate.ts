@@ -1,0 +1,376 @@
+import { INVENTORY_CAPACITY, LOG_CAPACITY, MAX_LEVEL, MAX_MAP_TIER } from "../data/balance";
+import { CURRENCIES } from "../data/currencies";
+import { ITEM_BASES } from "../data/item-bases";
+import { MAP_MODIFIERS } from "../data/map-modifiers";
+import { PASSIVE_EDGES, PASSIVE_NODES, PASSIVE_ROOT } from "../data/passive-tree";
+import { SKILLS } from "../data/skills";
+import { STACKS } from "../data/stacks";
+import { SUPPORTS } from "../data/supports";
+import { ZONES } from "../data/zones";
+import { EQUIP_SLOTS, RARITIES, SLOT_ITEM_CLASS } from "./equipment";
+import { CURRENT_SCHEMA_VERSION } from "./migrations";
+import { STAT_IDS } from "./modifiers";
+import { RNG_STREAMS } from "./random";
+import { LOG_KINDS, supportSlotCount, type GameState } from "./state";
+
+export type ValidationResult = { ok: true; state: GameState } | { ok: false; errors: string[] };
+
+type Obj = Record<string, unknown>;
+
+const ITEM_ID_PATTERN = /^i([1-9]\d*)$/;
+
+function isObj(v: unknown): v is Obj {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function isNonNegInt(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 0;
+}
+
+function isUint32(v: unknown): boolean {
+  return isNonNegInt(v) && v <= 0xffffffff;
+}
+
+function has(table: object, key: unknown): boolean {
+  return typeof key === "string" && Object.hasOwn(table, key);
+}
+
+class Checker {
+  readonly errors: string[] = [];
+
+  fail(path: string, message: string): void {
+    this.errors.push(`${path}: ${message}`);
+  }
+
+  obj(path: string, v: unknown): v is Obj {
+    if (!isObj(v)) {
+      this.fail(path, "expected object");
+      return false;
+    }
+    return true;
+  }
+
+  arr(path: string, v: unknown): v is unknown[] {
+    if (!Array.isArray(v)) {
+      this.fail(path, "expected array");
+      return false;
+    }
+    return true;
+  }
+
+  bool(path: string, v: unknown): void {
+    if (typeof v !== "boolean") this.fail(path, "expected boolean");
+  }
+
+  str(path: string, v: unknown): void {
+    if (typeof v !== "string") this.fail(path, "expected string");
+  }
+
+  nonNegInt(path: string, v: unknown): void {
+    if (!isNonNegInt(v)) this.fail(path, "expected non-negative integer");
+  }
+
+  intInRange(path: string, v: unknown, min: number, max: number): void {
+    if (typeof v !== "number" || !Number.isInteger(v) || v < min || v > max) {
+      this.fail(path, `expected integer in [${min}, ${max}]`);
+    }
+  }
+
+  ref(path: string, v: unknown, table: object): void {
+    if (!has(table, v)) this.fail(path, `unknown id ${JSON.stringify(v)}`);
+  }
+
+  unique(path: string, values: unknown[]): void {
+    if (new Set(values).size !== values.length) this.fail(path, "contains duplicates");
+  }
+}
+
+function buildPassiveAdjacency(): Map<string, string[]> {
+  const adjacency = new Map<string, string[]>();
+  for (const [a, b] of PASSIVE_EDGES) {
+    adjacency.set(a, [...(adjacency.get(a) ?? []), b]);
+    adjacency.set(b, [...(adjacency.get(b) ?? []), a]);
+  }
+  return adjacency;
+}
+
+/** Every allocated node must be connected to the root through allocated nodes. */
+function passivesConnected(allocated: readonly string[]): boolean {
+  const adjacency = buildPassiveAdjacency();
+  const allocatedSet = new Set(allocated);
+  const visited = new Set<string>([PASSIVE_ROOT]);
+  const queue: string[] = [PASSIVE_ROOT];
+  while (queue.length > 0) {
+    for (const next of adjacency.get(queue.shift()!) ?? []) {
+      if (allocatedSet.has(next) && !visited.has(next)) {
+        visited.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return allocated.every((id) => visited.has(id));
+}
+
+function checkRng(c: Checker, v: unknown): void {
+  if (!c.obj("rng", v)) return;
+  for (const name of RNG_STREAMS) {
+    const s = v[name];
+    if (!Array.isArray(s) || s.length !== 4 || !s.every(isUint32)) {
+      c.fail(`rng.${name}`, "expected 4 uint32 words");
+    }
+  }
+}
+
+function checkCharacter(c: Checker, v: unknown, items: Obj | null): void {
+  if (!c.obj("character", v)) return;
+  c.intInRange("character.level", v.level, 1, MAX_LEVEL);
+  if (typeof v.xp !== "number" || !Number.isFinite(v.xp) || v.xp < 0) c.fail("character.xp", "expected non-negative number");
+  c.nonNegInt("character.life", v.life);
+
+  c.ref("character.activeSkillId", v.activeSkillId, SKILLS);
+
+  if (c.arr("character.supportIds", v.supportIds)) {
+    if (isNonNegInt(v.level) && v.supportIds.length !== supportSlotCount(v.level)) {
+      c.fail("character.supportIds", `length must equal unlocked slot count ${supportSlotCount(v.level)}`);
+    }
+    v.supportIds.forEach((id, i) => {
+      if (id !== null) c.ref(`character.supportIds[${i}]`, id, SUPPORTS);
+    });
+    c.unique("character.supportIds", v.supportIds.filter((id) => id !== null));
+  }
+
+  if (c.arr("character.allocatedPassives", v.allocatedPassives)) {
+    const passives = v.allocatedPassives;
+    passives.forEach((id, i) => {
+      c.ref(`character.allocatedPassives[${i}]`, id, PASSIVE_NODES);
+      if (id === PASSIVE_ROOT) c.fail(`character.allocatedPassives[${i}]`, "root is implicit and must not be listed");
+    });
+    c.unique("character.allocatedPassives", passives);
+    if (passives.every((id) => typeof id === "string") && !passivesConnected(passives as string[])) {
+      c.fail("character.allocatedPassives", "not connected to the root");
+    }
+  }
+
+  if (!c.obj("character.equipment", v.equipment)) return;
+  const equipment = v.equipment;
+  const equipped: unknown[] = [];
+  for (const slot of EQUIP_SLOTS) {
+    const path = `character.equipment.${slot}`;
+    if (!Object.hasOwn(equipment, slot)) {
+      c.fail(path, "missing slot");
+      continue;
+    }
+    const id = equipment[slot];
+    if (id === null) continue;
+    equipped.push(id);
+    if (items === null) continue;
+    const item = items[id as string];
+    if (typeof id !== "string" || !isObj(item)) {
+      c.fail(path, `references missing item ${JSON.stringify(id)}`);
+      continue;
+    }
+    const base = has(ITEM_BASES, item.baseId) ? ITEM_BASES[item.baseId as keyof typeof ITEM_BASES] : null;
+    if (base !== null && base.itemClass !== SLOT_ITEM_CLASS[slot]) {
+      c.fail(path, `item class ${base.itemClass} cannot be equipped in ${slot}`);
+    }
+  }
+  c.unique("character.equipment", equipped);
+}
+
+function checkItem(c: Checker, path: string, key: string, item: unknown): number | null {
+  if (!c.obj(path, item)) return null;
+  const match = ITEM_ID_PATTERN.exec(key);
+  if (match === null) c.fail(path, "malformed item id");
+  if (item.id !== key) c.fail(`${path}.id`, "must equal its key");
+  c.ref(`${path}.baseId`, item.baseId, ITEM_BASES);
+  c.intInRange(`${path}.itemLevel`, item.itemLevel, 1, 1000);
+  if (!RARITIES.includes(item.rarity as never)) c.fail(`${path}.rarity`, "unknown rarity");
+  if (c.arr(`${path}.affixes`, item.affixes)) {
+    item.affixes.forEach((affix, i) => {
+      const ap = `${path}.affixes[${i}]`;
+      if (!c.obj(ap, affix)) return;
+      c.str(`${ap}.affixId`, affix.affixId);
+      if (!Array.isArray(affix.values) || !affix.values.every((n) => typeof n === "number" && Number.isFinite(n))) {
+        c.fail(`${ap}.values`, "expected finite numbers");
+      }
+    });
+  }
+  return match === null ? null : Number(match[1]);
+}
+
+function checkInventory(c: Checker, v: unknown, equipment: unknown, nextItemId: unknown): Obj | null {
+  if (!c.obj("inventory", v)) return null;
+  let items: Obj | null = null;
+
+  if (c.obj("inventory.items", v.items)) {
+    items = v.items;
+    let maxNumber = 0;
+    for (const [key, item] of Object.entries(items)) {
+      const n = checkItem(c, `inventory.items.${key}`, key, item);
+      if (n !== null) maxNumber = Math.max(maxNumber, n);
+    }
+    if (isNonNegInt(nextItemId) && nextItemId <= maxNumber) {
+      c.fail("nextItemId", `must be greater than every existing item number (${maxNumber})`);
+    }
+  }
+
+  if (c.arr("inventory.order", v.order)) {
+    const order = v.order;
+    c.unique("inventory.order", order);
+    if (order.length > INVENTORY_CAPACITY) c.fail("inventory.order", `exceeds capacity ${INVENTORY_CAPACITY}`);
+
+    if (items !== null && isObj(equipment)) {
+      const equippedIds = new Set<unknown>(Object.values(equipment).filter((id) => id !== null));
+      const orderIds = new Set(order);
+      order.forEach((id, i) => {
+        if (!has(items!, id)) c.fail(`inventory.order[${i}]`, `references missing item ${JSON.stringify(id)}`);
+        if (equippedIds.has(id)) c.fail(`inventory.order[${i}]`, "equipped items must not be listed");
+      });
+      for (const id of Object.keys(items)) {
+        if (!equippedIds.has(id) && !orderIds.has(id)) c.fail(`inventory.items.${id}`, "neither equipped nor in order");
+      }
+    }
+  }
+
+  if (c.obj("inventory.currency", v.currency)) {
+    for (const id of Object.keys(CURRENCIES)) {
+      c.nonNegInt(`inventory.currency.${id}`, v.currency[id]);
+    }
+    for (const id of Object.keys(v.currency)) {
+      c.ref("inventory.currency", id, CURRENCIES);
+    }
+  }
+  return items;
+}
+
+function checkProgression(c: Checker, v: unknown): void {
+  if (!c.obj("progression", v)) return;
+  c.intInRange("progression.unlockedMapTier", v.unlockedMapTier, 0, MAX_MAP_TIER);
+  c.nonNegInt("progression.consecutiveDeaths", v.consecutiveDeaths);
+  c.nonNegInt("progression.totalKills", v.totalKills);
+
+  const unlocked = Array.isArray(v.unlockedZones) ? v.unlockedZones : [];
+  if (c.arr("progression.unlockedZones", v.unlockedZones)) {
+    if (unlocked.length === 0) c.fail("progression.unlockedZones", "must not be empty");
+    unlocked.forEach((id, i) => c.ref(`progression.unlockedZones[${i}]`, id, ZONES));
+    c.unique("progression.unlockedZones", unlocked);
+  }
+
+  if (c.obj("progression.zoneProgress", v.zoneProgress)) {
+    for (const [id, p] of Object.entries(v.zoneProgress)) {
+      const path = `progression.zoneProgress.${id}`;
+      c.ref(path, id, ZONES);
+      if (!c.obj(path, p)) continue;
+      c.nonNegInt(`${path}.encountersCleared`, p.encountersCleared);
+      c.bool(`${path}.bossDefeated`, p.bossDefeated);
+    }
+  }
+
+  const a = v.activity;
+  if (!c.obj("progression.activity", a)) return;
+  if (a.kind === "zone") {
+    c.ref("progression.activity.zoneId", a.zoneId, ZONES);
+    if (!unlocked.includes(a.zoneId)) c.fail("progression.activity.zoneId", "zone is not unlocked");
+  } else if (a.kind === "map") {
+    const maxTier = isNonNegInt(v.unlockedMapTier) ? v.unlockedMapTier : 0;
+    c.intInRange("progression.activity.tier", a.tier, 1, Math.max(1, maxTier));
+    if (maxTier === 0) c.fail("progression.activity", "maps are locked");
+    c.nonNegInt("progression.activity.encountersCleared", a.encountersCleared);
+    if (c.arr("progression.activity.modifiers", a.modifiers)) {
+      a.modifiers.forEach((id, i) => c.ref(`progression.activity.modifiers[${i}]`, id, MAP_MODIFIERS));
+      c.unique("progression.activity.modifiers", a.modifiers);
+    }
+  } else {
+    c.fail("progression.activity.kind", "expected zone or map");
+  }
+}
+
+function checkEncounter(c: Checker, v: unknown): void {
+  if (v === undefined || v === null) return;
+  if (!c.obj("encounter", v)) return;
+  c.nonNegInt("encounter.index", v.index);
+  c.bool("encounter.isBoss", v.isBoss);
+  if (!["fighting", "transition", "respawning"].includes(v.phase as string)) c.fail("encounter.phase", "unknown phase");
+  c.nonNegInt("encounter.phaseEndsAt", v.phaseEndsAt);
+  if (c.obj("encounter.player", v.player)) c.nonNegInt("encounter.player.nextAttackAt", v.player.nextAttackAt);
+  if (c.obj("encounter.stacks", v.stacks)) {
+    for (const [id, n] of Object.entries(v.stacks)) {
+      c.ref("encounter.stacks", id, STACKS);
+      c.nonNegInt(`encounter.stacks.${id}`, n);
+    }
+  }
+  if (c.arr("encounter.monsters", v.monsters)) {
+    v.monsters.forEach((m, i) => {
+      const path = `encounter.monsters[${i}]`;
+      if (!c.obj(path, m)) return;
+      c.str(`${path}.defId`, m.defId);
+      c.intInRange(`${path}.level`, m.level, 1, 1000);
+      c.nonNegInt(`${path}.life`, m.life);
+      c.nonNegInt(`${path}.maxLife`, m.maxLife);
+      c.nonNegInt(`${path}.nextAttackAt`, m.nextAttackAt);
+      c.bool(`${path}.alive`, m.alive);
+    });
+  }
+}
+
+function checkSettings(c: Checker, v: unknown): void {
+  if (!c.obj("settings", v)) return;
+  c.bool("settings.autoAdvance", v.autoAdvance);
+  c.bool("settings.autoRetreat", v.autoRetreat);
+  if (!c.arr("settings.lootFilter", v.lootFilter)) return;
+  v.lootFilter.forEach((rule, i) => {
+    const path = `settings.lootFilter[${i}]`;
+    if (!c.obj(path, rule)) return;
+    if (rule.action !== "keep" && rule.action !== "salvage") c.fail(`${path}.action`, "expected keep or salvage");
+    if (rule.minRarity !== undefined && !RARITIES.includes(rule.minRarity as never)) c.fail(`${path}.minRarity`, "unknown rarity");
+    if (rule.minItemLevel !== undefined) c.nonNegInt(`${path}.minItemLevel`, rule.minItemLevel);
+    if (rule.slots !== undefined && c.arr(`${path}.slots`, rule.slots)) {
+      rule.slots.forEach((s, j) => {
+        if (!EQUIP_SLOTS.includes(s as never)) c.fail(`${path}.slots[${j}]`, "unknown slot");
+      });
+    }
+    if (rule.hasStat !== undefined && c.arr(`${path}.hasStat`, rule.hasStat)) {
+      rule.hasStat.forEach((s, j) => {
+        if (!STAT_IDS.includes(s as never)) c.fail(`${path}.hasStat[${j}]`, "unknown stat");
+      });
+    }
+  });
+}
+
+function checkLog(c: Checker, v: unknown): void {
+  if (!c.arr("log", v)) return;
+  if (v.length > LOG_CAPACITY) c.fail("log", `exceeds capacity ${LOG_CAPACITY}`);
+  v.forEach((entry, i) => {
+    const path = `log[${i}]`;
+    if (!c.obj(path, entry)) return;
+    c.nonNegInt(`${path}.timeMs`, entry.timeMs);
+    if (!LOG_KINDS.includes(entry.kind as never)) c.fail(`${path}.kind`, "unknown kind");
+    c.str(`${path}.text`, entry.text);
+  });
+}
+
+/**
+ * Validates an untrusted value as a GameState of the current schema version, including
+ * cross-field invariants (each item equipped or listed exactly once, references resolve).
+ * `encounter` may be absent (persisted form), null, or a runtime object.
+ */
+export function validateState(input: unknown): ValidationResult {
+  const c = new Checker();
+  if (!c.obj("state", input)) return { ok: false, errors: c.errors };
+  const v = input;
+
+  if (v.schemaVersion !== CURRENT_SCHEMA_VERSION) c.fail("schemaVersion", `expected ${CURRENT_SCHEMA_VERSION}`);
+  c.nonNegInt("simTimeMs", v.simTimeMs);
+  c.intInRange("nextItemId", v.nextItemId, 1, Number.MAX_SAFE_INTEGER);
+  checkRng(c, v.rng);
+
+  const equipment = isObj(v.character) ? v.character.equipment : undefined;
+  const items = checkInventory(c, v.inventory, equipment, v.nextItemId);
+  checkCharacter(c, v.character, items);
+  checkProgression(c, v.progression);
+  checkEncounter(c, v.encounter);
+  checkSettings(c, v.settings);
+  checkLog(c, v.log);
+
+  return c.errors.length === 0 ? { ok: true, state: input as unknown as GameState } : { ok: false, errors: c.errors };
+}
