@@ -3,7 +3,7 @@
 export const MAX_LEVEL = 50;
 
 /** Base life = base + perLevel × (level − 1). */
-export const BASE_LIFE = { base: 100, perLevel: 12 } as const;
+export const BASE_LIFE = { base: 100, perLevel: 30 } as const;
 
 /** Character level at which each support slot unlocks, in slot order. */
 export const SUPPORT_SLOT_LEVELS = [3, 10] as const;
@@ -52,7 +52,7 @@ export const PACK_SIZE_WEIGHTS: [number, number, number] = [50, 35, 15];
 // --- Experience (plan §10.1) ---
 
 export function xpToNextLevel(level: number): number {
-  return Math.round(60 * level ** 1.85 + 40);
+  return Math.round(60 * level ** 2.25 + 40);
 }
 
 /** Before the archetype/boss XP multiplier and the level-difference penalty. */
@@ -64,18 +64,51 @@ export function xpSafeRange(characterLevel: number): number {
   return 3 + Math.floor(characterLevel / 10);
 }
 
-export const XP_PENALTY_PER_EXCESS_LEVEL = 0.15;
-export const XP_MIN_MULTIPLIER = 0.05;
+export const XP_PENALTY_PER_EXCESS_LEVEL = 0.06;
+export const XP_MIN_MULTIPLIER = 0.2;
 
 // --- Monster scaling (plan §10.2) ---
 
+/**
+ * Curve anchors as [monster level, value], ascending. Values between anchors are interpolated
+ * geometrically (constant growth rate per level within a segment) and extrapolated with the
+ * last segment's rate. M6 tuning replaced the single exponentials of plan §10.2: those grew
+ * too slowly against early gear and too fast against capped endgame gear.
+ */
+export type CurveAnchors = readonly (readonly [number, number])[];
+
+export function interpolateCurve(anchors: CurveAnchors, level: number): number {
+  let i = 0;
+  while (i < anchors.length - 2 && level > anchors[i + 1]![0]) i++;
+  const [l0, v0] = anchors[i]!;
+  const [l1, v1] = anchors[i + 1]!;
+  return v0 * (v1 / v0) ** ((level - l0) / (l1 - l0));
+}
+
+export const MONSTER_LIFE_CURVE: CurveAnchors = [
+  [1, 30],
+  [8, 65],
+  [17, 600],
+  [30, 2200],
+  [52, 5500],
+];
+
+/** Per hit, physical-equivalent. */
+export const MONSTER_DAMAGE_CURVE: CurveAnchors = [
+  [1, 4],
+  [8, 6],
+  [17, 28],
+  [30, 75],
+  [52, 115],
+];
+
 export function monsterBaseLife(monsterLevel: number): number {
-  return Math.round(30 * 1.12 ** (monsterLevel - 1));
+  return Math.round(interpolateCurve(MONSTER_LIFE_CURVE, monsterLevel));
 }
 
 /** Per hit, physical-equivalent, before archetype multiplier and roll. */
 export function monsterBaseDamage(monsterLevel: number): number {
-  return 4 * 1.08 ** (monsterLevel - 1);
+  return interpolateCurve(MONSTER_DAMAGE_CURVE, monsterLevel);
 }
 
 /** Before the archetype armor multiplier. */

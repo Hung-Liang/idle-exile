@@ -115,7 +115,7 @@ export const MONSTERS: Record<MonsterId, ArchetypeDefinition> = {
 };
 
 /** Shared boss multipliers (plan §10.3); damage split, armor and resistances are per boss. */
-const BOSS_BASE = { lifeMult: 8, damageMult: 1.5, attacksPerSecond: 0.8, xpMult: 10 } as const;
+const BOSS_BASE = { lifeMult: 5, damageMult: 1.5, attacksPerSecond: 0.8, xpMult: 10 } as const;
 
 export const BOSSES: Record<BossId, BossDefinition> = {
   gatewarden: {

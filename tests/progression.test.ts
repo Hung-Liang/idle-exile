@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { MAX_LEVEL, monsterBaseLife, monsterBaseXp, xpToNextLevel } from "../src/data/balance";
+import {
+  BASE_LIFE,
+  interpolateCurve,
+  MAX_LEVEL,
+  MONSTER_LIFE_CURVE,
+  monsterBaseDamage,
+  monsterBaseLife,
+  monsterBaseXp,
+  XP_MIN_MULTIPLIER,
+  XP_PENALTY_PER_EXCESS_LEVEL,
+  xpToNextLevel,
+} from "../src/data/balance";
 import { ZONE_ORDER } from "../src/data/zones";
 import type { GameEvent } from "../src/game/events";
 import { grantXp, recordBossDefeated, recordEncounterCleared, retreat, xpMultiplier } from "../src/game/progression";
@@ -9,16 +20,33 @@ import { resolveActivity } from "../src/game/zones";
 describe("experience curves", () => {
   it("matches the documented formulas", () => {
     expect(xpToNextLevel(1)).toBe(100);
-    expect(xpToNextLevel(10)).toBe(Math.round(60 * 10 ** 1.85 + 40));
+    expect(xpToNextLevel(10)).toBe(Math.round(60 * 10 ** 2.25 + 40));
     expect(monsterBaseXp(1)).toBe(8);
     expect(monsterBaseLife(1)).toBe(30);
   });
 
-  it("penalizes level differences beyond the safe range, down to 5%", () => {
+  it("interpolates monster curves geometrically between anchors and extrapolates past the last", () => {
+    const anchors = [
+      [1, 10],
+      [11, 1000],
+      [21, 2000],
+    ] as const;
+    expect(interpolateCurve(anchors, 1)).toBeCloseTo(10);
+    expect(interpolateCurve(anchors, 6)).toBeCloseTo(100);
+    expect(interpolateCurve(anchors, 11)).toBeCloseTo(1000);
+    expect(interpolateCurve(anchors, 31)).toBeCloseTo(4000);
+    for (const [level, value] of MONSTER_LIFE_CURVE) expect(monsterBaseLife(level)).toBe(value);
+    for (let level = 2; level <= 55; level++) {
+      expect(monsterBaseLife(level)).toBeGreaterThanOrEqual(monsterBaseLife(level - 1));
+      expect(monsterBaseDamage(level)).toBeGreaterThan(monsterBaseDamage(level - 1));
+    }
+  });
+
+  it("penalizes level differences beyond the safe range, down to the minimum", () => {
     expect(xpMultiplier(1, 4)).toBe(1);
-    expect(xpMultiplier(1, 5)).toBeCloseTo(0.85);
-    expect(xpMultiplier(10, 1)).toBeCloseTo(1 - 0.15 * 5);
-    expect(xpMultiplier(1, 40)).toBe(0.05);
+    expect(xpMultiplier(1, 5)).toBeCloseTo(1 - XP_PENALTY_PER_EXCESS_LEVEL);
+    expect(xpMultiplier(10, 1)).toBeCloseTo(1 - XP_PENALTY_PER_EXCESS_LEVEL * 5);
+    expect(xpMultiplier(1, 40)).toBe(XP_MIN_MULTIPLIER);
     // Safe range grows with level: 3 + floor(20 / 10) = 5.
     expect(xpMultiplier(20, 25)).toBe(1);
   });
@@ -32,7 +60,7 @@ describe("grantXp", () => {
     grantXp(state, xpToNextLevel(1) + xpToNextLevel(2) + 5, events);
     expect(state.character.level).toBe(3);
     expect(state.character.xp).toBe(5);
-    expect(state.character.life).toBe(50 + 24);
+    expect(state.character.life).toBe(50 + 2 * BASE_LIFE.perLevel);
     expect(state.character.supportIds).toEqual([null]);
     expect(events.map((e) => e.type)).toEqual(["level_up", "level_up"]);
   });
