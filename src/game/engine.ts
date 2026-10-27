@@ -302,7 +302,7 @@ export function dispatch(state: GameState, action: PlayerAction): ActionResult {
     case "equip_item":
       return errorResult(equipItem(state, action.itemId, action.slot, events), events);
     case "unequip_slot":
-      return errorResult(unequipSlot(state, action.slot), events);
+      return errorResult(unequipSlot(state, action.slot, events), events);
     case "salvage_item":
       return errorResult(salvageItem(state, action.itemId, events), events);
     case "set_loot_filter":

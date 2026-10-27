@@ -8,6 +8,7 @@ import { parseSave, serializeSave } from "../src/game/save";
 import { computeMaxLife } from "../src/game/stats";
 import { createInitialState, type GameState, type MonsterRuntime } from "../src/game/state";
 import { validateState } from "../src/game/validate";
+import { ZONES } from "../src/data/zones";
 
 function monster(defId: string, overrides: Partial<MonsterRuntime> = {}): MonsterRuntime {
   const stats = monsterStats(defId, 1);
@@ -207,6 +208,8 @@ describe("advance: death and respawn", () => {
     expect(state.progression.activity).toEqual({ kind: "zone", zoneId: "ashen_outskirts" });
     expect(state.settings.autoAdvance).toBe(false);
     expect(state.progression.zoneProgress.drowned_fields!.encountersCleared).toBe(3);
+    // The count restarts in the zone retreated to, so one more death does not retreat again.
+    expect(state.progression.consecutiveDeaths).toBe(0);
   });
 });
 
@@ -339,15 +342,35 @@ describe("save/load interaction", () => {
 });
 
 describe("dispatch", () => {
-  it("travels only to unlocked zones and discards the encounter", () => {
+  it("travels only to unlocked zones and leaves the encounter through a transition", () => {
     const state = createInitialState(1);
-    advance(state, 1000);
+    advance(state, 0);
     expect(dispatch(state, { type: "travel_to_zone", zoneId: "hollow_pines" })).toEqual({ ok: false, reason: "zone_locked" });
     state.progression.unlockedZones.push("drowned_fields");
     const result = dispatch(state, { type: "travel_to_zone", zoneId: "drowned_fields" });
     expect(result.ok).toBe(true);
     expect(state.progression.activity).toEqual({ kind: "zone", zoneId: "drowned_fields" });
-    expect(state.encounter).toBeNull();
+    expect(state.encounter).toMatchObject({ phase: "transition", phaseEndsAt: TRANSITION_MS, monsters: [] });
+    advance(state, TRANSITION_MS);
+    expect(state.encounter!.phase).toBe("fighting");
+    expect(state.encounter!.monsters[0]!.level).toBe(ZONES.drowned_fields.monsterLevel);
+  });
+
+  it("travelling keeps current life and does not cut a respawn short", () => {
+    const state = createInitialState(1);
+    state.progression.unlockedZones.push("drowned_fields");
+    advance(state, 1000);
+    state.character.life = 7;
+    dispatch(state, { type: "travel_to_zone", zoneId: "drowned_fields" });
+    advance(state, TRANSITION_MS);
+    expect(state.character.life).toBe(7);
+
+    state.encounter = { ...state.encounter!, phase: "respawning", phaseEndsAt: state.simTimeMs + RESPAWN_MS, monsters: [] };
+    state.character.life = 0;
+    const respawnAt = state.encounter.phaseEndsAt;
+    dispatch(state, { type: "travel_to_zone", zoneId: "ashen_outskirts" });
+    expect(state.encounter).toMatchObject({ phase: "respawning", phaseEndsAt: respawnAt });
+    expect(state.character.life).toBe(0);
   });
 
   it("toggles auto-advance and auto-retreat", () => {

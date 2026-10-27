@@ -1,4 +1,4 @@
-import { autoAdvanceLevel, MAX_LEVEL, MAX_MAP_TIER, XP_MIN_MULTIPLIER, XP_PENALTY_PER_EXCESS_LEVEL, xpSafeRange, xpToNextLevel } from "../data/balance";
+import { autoAdvanceLevel, MAX_LEVEL, MAX_MAP_TIER, TRANSITION_MS, XP_MIN_MULTIPLIER, XP_PENALTY_PER_EXCESS_LEVEL, xpSafeRange, xpToNextLevel } from "../data/balance";
 import { MAP_MODIFIERS, type MapModifierId } from "../data/map-modifiers";
 import { MAP_MODIFIER_COUNT_WEIGHTS, mapTier } from "../data/maps";
 import { ZONE_ORDER, ZONES, type ZoneId } from "../data/zones";
@@ -172,6 +172,13 @@ export function blockedAutoAdvance(state: GameState): { name: string; requiredLe
  * Returns false (and changes nothing) when there is nowhere to go.
  */
 export function retreat(state: GameState, events: GameEvent[]): boolean {
+  // Deaths in the area left behind do not count toward retreating again from the new one.
+  const moved = retreatTarget(state, events);
+  if (moved) state.progression.consecutiveDeaths = 0;
+  return moved;
+}
+
+function retreatTarget(state: GameState, events: GameEvent[]): boolean {
   const activity = state.progression.activity;
   if (activity.kind === "map") {
     if (activity.tier > 1) {
@@ -198,23 +205,39 @@ export function retreat(state: GameState, events: GameEvent[]): boolean {
   return false;
 }
 
-/** Switches to an unlocked zone. The encounter is discarded and rebuilt by the next `advance()`. */
+/**
+ * Leaves the current encounter after a manual activity change. The pack is discarded and the
+ * next encounter of the new activity starts after the usual transition. Life is kept, and a
+ * pending respawn still runs to its end, so switching areas never heals for free. Without an
+ * encounter (fresh load), the next `advance()` builds one as usual.
+ */
+function leaveEncounter(state: GameState): void {
+  const encounter = state.encounter;
+  if (encounter === null) return;
+  encounter.monsters = [];
+  if (encounter.phase === "fighting") {
+    encounter.phase = "transition";
+    encounter.phaseEndsAt = state.simTimeMs + TRANSITION_MS;
+  }
+}
+
+/** Switches to an unlocked zone. The encounter is left (see `leaveEncounter`). */
 export function travelToZone(state: GameState, zoneId: ZoneId, events: GameEvent[]): boolean {
   if (!state.progression.unlockedZones.includes(zoneId)) {
     return false;
   }
   setZoneActivity(state, zoneId, events);
-  state.encounter = null;
+  leaveEncounter(state);
   appendLog(state, "info", `Travelled to ${ZONES[zoneId].name}.`);
   return true;
 }
 
-/** Starts a new run of an unlocked map tier. The encounter is discarded and rebuilt by the next `advance()`. */
+/** Starts a new run of an unlocked map tier. The encounter is left (see `leaveEncounter`). */
 export function startMap(state: GameState, tier: number, events: GameEvent[]): boolean {
   if (!Number.isInteger(tier) || tier < 1 || tier > state.progression.unlockedMapTier) {
     return false;
   }
   startMapRun(state, tier, events);
-  state.encounter = null;
+  leaveEncounter(state);
   return true;
 }

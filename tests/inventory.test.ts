@@ -82,7 +82,10 @@ describe("unequip_slot and salvage_item", () => {
     for (let i = 0; i < INVENTORY_CAPACITY; i++) addItem(state, { baseId: "iron_band", itemLevel: 1, rarity: "normal", affixes: [] });
     expect(dispatch(state, { type: "unequip_slot", slot: "weapon" })).toEqual({ ok: false, reason: "inventory_full" });
     dispatch(state, { type: "salvage_item", itemId: state.inventory.order[0]! });
-    expect(dispatch(state, { type: "unequip_slot", slot: "weapon" })).toMatchObject({ ok: true });
+    const weapon = state.character.equipment.weapon!;
+    const result = dispatch(state, { type: "unequip_slot", slot: "weapon" });
+    expect(result).toMatchObject({ ok: true, events: [{ type: "item_unequipped", itemId: weapon, slot: "weapon" }] });
+    expect(state.log.at(-1)!.text).toMatch(/^Unequipped /);
     expect(state.character.equipment.weapon).toBeNull();
     expectValid(state);
   });

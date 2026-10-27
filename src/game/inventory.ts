@@ -41,13 +41,15 @@ export function equipItem(state: GameState, itemId: ItemId, slot: EquipSlot | un
   return null;
 }
 
-export function unequipSlot(state: GameState, slot: EquipSlot): InventoryError | null {
+export function unequipSlot(state: GameState, slot: EquipSlot, events: GameEvent[]): InventoryError | null {
   const itemId = state.character.equipment[slot];
   if (itemId === null) return "slot_empty";
   if (state.inventory.order.length >= INVENTORY_CAPACITY) return "inventory_full";
   state.character.equipment[slot] = null;
   state.inventory.order.push(itemId);
   clampLifeToMax(state);
+  appendLog(state, "info", `Unequipped ${describeItem(state.inventory.items[itemId]!)}.`);
+  events.push({ type: "item_unequipped", timeMs: state.simTimeMs, itemId, slot });
   return null;
 }
 

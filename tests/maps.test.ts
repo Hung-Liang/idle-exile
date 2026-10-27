@@ -107,7 +107,7 @@ describe("start_map", () => {
     expect(state.progression.activity).toEqual({ kind: "zone", zoneId: "ashen_outskirts" });
   });
 
-  it("starts a fresh run, discards the encounter and consumes only the map stream", () => {
+  it("starts a fresh run, leaves the encounter and consumes only the map stream", () => {
     const state = createInitialState(3);
     state.progression.unlockedMapTier = 2;
     advance(state, 5_000);
@@ -115,7 +115,8 @@ describe("start_map", () => {
     const result = dispatch(state, { type: "start_map", tier: 2 });
     expect(result.ok).toBe(true);
     expect(state.progression.activity).toMatchObject({ kind: "map", tier: 2, encountersCleared: 0 });
-    expect(state.encounter).toBeNull();
+    expect(state.encounter!.monsters).toEqual([]);
+    expect(state.encounter!.phase).not.toBe("fighting");
     expect({ ...state.rng, map: null }).toEqual({ ...rngBefore, map: null });
     const validation = validateState(state);
     expect(validation.ok ? [] : validation.errors).toEqual([]);

@@ -19,6 +19,7 @@ export type GameEvent =
   | { type: "item_dropped"; timeMs: number; itemId: ItemId; rarity: Rarity; outcome: "kept" | "salvaged" | "overflow" }
   | { type: "currency_gained"; timeMs: number; currencyId: CurrencyId; amount: number; source: "drop" | "salvage" }
   | { type: "item_equipped"; timeMs: number; itemId: ItemId; slot: EquipSlot; replaced: ItemId | null }
+  | { type: "item_unequipped"; timeMs: number; itemId: ItemId; slot: EquipSlot }
   | { type: "item_salvaged"; timeMs: number; itemId: ItemId }
   | { type: "item_crafted"; timeMs: number; itemId: ItemId; currencyId: CurrencyId }
   | { type: "skill_changed"; timeMs: number; skillId: SkillId }
