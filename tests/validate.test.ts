@@ -172,7 +172,38 @@ describe("validateState", () => {
     it("rejects disconnected or root passives", () => {
       expectRejected((s) => (s.character.allocatedPassives = ["m2"]), "not connected to the root");
       expectRejected((s) => (s.character.allocatedPassives = ["origin"]), "root is implicit");
-      expect(errorsAfter((s) => (s.character.allocatedPassives = ["m1", "m2", "b7"]))).toEqual([]);
+      expect(
+        errorsAfter((s) => {
+          s.character.level = 9;
+          s.character.supportIds = [null];
+          s.character.allocatedPassives = ["m1", "m2", "b7"];
+        }),
+      ).toEqual([]);
+    });
+
+    it("rejects more passives than the level grants", () => {
+      expectRejected((s) => (s.character.allocatedPassives = ["m1"]), "exceeds the 0 points available at level 1");
+      expectRejected((s) => {
+        s.character.level = 6;
+        s.character.supportIds = [null];
+        s.character.allocatedPassives = ["m1", "m2", "b7"];
+      }, "exceeds the 2 points");
+    });
+
+    it("rejects a skill or support above the character level", () => {
+      expectRejected((s) => (s.character.activeSkillId = "rapid_assault"), "character.activeSkillId");
+      expectRejected((s) => {
+        s.character.level = 3;
+        s.character.supportIds = ["keen_edge"];
+      }, "character.supportIds[0]");
+    });
+
+    it("rejects a support incompatible with the active skill", () => {
+      expectRejected((s) => {
+        s.character.level = 50;
+        s.character.activeSkillId = "arc_pulse";
+        s.character.supportIds = ["focused_blow", null];
+      }, "incompatible with the active skill");
     });
 
     it("rejects a malformed rng state", () => {
@@ -182,6 +213,13 @@ describe("validateState", () => {
 
     it("rejects a locked zone activity", () => {
       expectRejected((s) => (s.progression.activity = { kind: "zone", zoneId: "glass_ridge" }), "zone is not unlocked");
+    });
+
+    it("rejects map runs until they are implemented", () => {
+      expectRejected((s) => {
+        s.progression.unlockedMapTier = 1;
+        s.progression.activity = { kind: "map", tier: 1, modifiers: [], encountersCleared: 0 };
+      }, "map runs are not supported yet");
     });
 
     it("rejects a map activity while maps are locked or above the unlocked tier", () => {

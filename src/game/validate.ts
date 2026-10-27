@@ -12,8 +12,9 @@ import { ZONES } from "../data/zones";
 import { EQUIP_SLOTS, RARITIES, SLOT_ITEM_CLASS } from "./equipment";
 import { CURRENT_SCHEMA_VERSION } from "./migrations";
 import { STAT_IDS } from "./modifiers";
-import { PASSIVE_ADJACENCY } from "./passive-tree";
+import { PASSIVE_ADJACENCY, passivePoints } from "./passive-tree";
 import { RNG_STREAMS } from "./random";
+import { supportIncompatibility } from "./skills";
 import { LOG_KINDS, supportSlotCount, type GameState } from "./state";
 
 export type ValidationResult = { ok: true; state: GameState } | { ok: false; errors: string[] };
@@ -121,14 +122,28 @@ function checkCharacter(c: Checker, v: unknown, items: Obj | null): void {
   if (typeof v.xp !== "number" || !Number.isFinite(v.xp) || v.xp < 0) c.fail("character.xp", "expected non-negative number");
   c.nonNegInt("character.life", v.life);
 
+  // Imported saves bypass `dispatch`, so the action rules (unlock levels, compatibility,
+  // passive points) are re-checked here.
+  const level = isNonNegInt(v.level) ? v.level : null;
+  const skillId = has(SKILLS, v.activeSkillId) ? (v.activeSkillId as keyof typeof SKILLS) : null;
   c.ref("character.activeSkillId", v.activeSkillId, SKILLS);
+  if (skillId !== null && level !== null && level < SKILLS[skillId].unlockLevel) {
+    c.fail("character.activeSkillId", `requires level ${SKILLS[skillId].unlockLevel}`);
+  }
 
   if (c.arr("character.supportIds", v.supportIds)) {
-    if (isNonNegInt(v.level) && v.supportIds.length !== supportSlotCount(v.level)) {
-      c.fail("character.supportIds", `length must equal unlocked slot count ${supportSlotCount(v.level)}`);
+    if (level !== null && v.supportIds.length !== supportSlotCount(level)) {
+      c.fail("character.supportIds", `length must equal unlocked slot count ${supportSlotCount(level)}`);
     }
     v.supportIds.forEach((id, i) => {
-      if (id !== null) c.ref(`character.supportIds[${i}]`, id, SUPPORTS);
+      if (id === null) return;
+      const path = `character.supportIds[${i}]`;
+      c.ref(path, id, SUPPORTS);
+      if (!has(SUPPORTS, id)) return;
+      const support = id as keyof typeof SUPPORTS;
+      if (level !== null && level < SUPPORTS[support].unlockLevel) c.fail(path, `requires level ${SUPPORTS[support].unlockLevel}`);
+      const reason = skillId === null ? null : supportIncompatibility(skillId, support);
+      if (reason !== null) c.fail(path, `incompatible with the active skill: ${reason}`);
     });
     c.unique("character.supportIds", v.supportIds.filter((id) => id !== null));
   }
@@ -140,6 +155,9 @@ function checkCharacter(c: Checker, v: unknown, items: Obj | null): void {
       if (id === PASSIVE_ROOT) c.fail(`character.allocatedPassives[${i}]`, "root is implicit and must not be listed");
     });
     c.unique("character.allocatedPassives", passives);
+    if (level !== null && passives.length > passivePoints(level)) {
+      c.fail("character.allocatedPassives", `exceeds the ${passivePoints(level)} points available at level ${level}`);
+    }
     if (passives.every((id) => typeof id === "string") && !passivesConnected(passives as string[])) {
       c.fail("character.allocatedPassives", "not connected to the root");
     }
@@ -285,6 +303,8 @@ function checkProgression(c: Checker, v: unknown): void {
     c.ref("progression.activity.zoneId", a.zoneId, ZONES);
     if (!unlocked.includes(a.zoneId)) c.fail("progression.activity.zoneId", "zone is not unlocked");
   } else if (a.kind === "map") {
+    // resolveActivity() cannot run maps until M5; accepting one would crash the first advance().
+    c.fail("progression.activity", "map runs are not supported yet");
     const maxTier = isNonNegInt(v.unlockedMapTier) ? v.unlockedMapTier : 0;
     c.intInRange("progression.activity.tier", a.tier, 1, Math.max(1, maxTier));
     if (maxTier === 0) c.fail("progression.activity", "maps are locked");

@@ -1,3 +1,4 @@
+import { crc32 } from "./crc32";
 import { migrateSave } from "./migrations";
 import { createInitialState, type GameState } from "./state";
 import { validateState } from "./validate";
@@ -145,4 +146,55 @@ export function loadSave(storage: KeyValueStorage, newGame: { seed: number; now:
     storage.setItem(CORRUPT_KEY, corrupt);
   }
   return { state: createInitialState(newGame.seed), lastActiveAt: newGame.now, source: "new", errors };
+}
+
+// --- Export / import (plan §12.6) ---
+
+const EXPORT_SEPARATOR = ".";
+const CRC_HEX_LENGTH = 8;
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function base64ToBytes(text: string): Uint8Array {
+  const binary = atob(text);
+  return Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+}
+
+function crcHex(bytes: Uint8Array): string {
+  return crc32(bytes).toString(16).padStart(CRC_HEX_LENGTH, "0");
+}
+
+/** `base64(JSON(SaveFile))` + "." + CRC-32 (hex) of the JSON's UTF-8 bytes. */
+export function encodeExport(state: GameState, times: SaveTimes): string {
+  const json = new TextEncoder().encode(serializeSave(state, times));
+  return `${bytesToBase64(json)}${EXPORT_SEPARATOR}${crcHex(json)}`;
+}
+
+/** Verifies the checksum, then migrates and validates like a stored save. Never touches storage. */
+export function decodeExport(text: string): ParseResult {
+  const trimmed = text.replace(/\s+/g, "");
+  const at = trimmed.lastIndexOf(EXPORT_SEPARATOR);
+  if (at < 0 || trimmed.length - at - 1 !== CRC_HEX_LENGTH) {
+    return { ok: false, error: "missing checksum" };
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = base64ToBytes(trimmed.slice(0, at));
+  } catch {
+    return { ok: false, error: "invalid base64" };
+  }
+  if (crcHex(bytes) !== trimmed.slice(at + 1).toLowerCase()) {
+    return { ok: false, error: "checksum mismatch" };
+  }
+  let json: string;
+  try {
+    json = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return { ok: false, error: "invalid UTF-8" };
+  }
+  return parseSave(json);
 }

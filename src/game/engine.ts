@@ -27,6 +27,15 @@ import { resolveActivity } from "./zones";
 
 export interface AdvanceResult {
   events: GameEvent[];
+  /** Scheduled events resolved by this call. */
+  eventsResolved: number;
+  /** True when `eventBudget` stopped the call early; `simTimeMs` then stays at the last resolved event. */
+  budgetExhausted: boolean;
+}
+
+export interface AdvanceOptions {
+  /** Maximum number of scheduled events to resolve; the remaining time is discarded. */
+  eventBudget?: number;
 }
 
 export type PlayerAction =
@@ -206,13 +215,15 @@ function phaseEnd(sim: Sim, encounter: EncounterRuntime): void {
  * Advances the simulation by `ms` of game time, resolving every event with time ≤ the target
  * (inclusive). Mutates `state` in place. Splitting a call at any point yields the same state.
  */
-export function advance(state: GameState, ms: number): AdvanceResult {
+export function advance(state: GameState, ms: number, options: AdvanceOptions = {}): AdvanceResult {
   if (!Number.isInteger(ms) || ms < 0) {
     throw new RangeError(`advance: ms must be a non-negative integer, got ${ms}`);
   }
   const targetTime = state.simTimeMs + ms;
   const build = collectBuild(state);
   const sim: Sim = { state, events: [], build, defenses: computeDefenses(build) };
+  const budget = options.eventBudget ?? Infinity;
+  let resolved = 0;
 
   if (state.encounter === null) {
     state.character.life = sim.defenses.maxLife;
@@ -225,6 +236,10 @@ export function advance(state: GameState, ms: number): AdvanceResult {
     if (next === null || next.time > targetTime) {
       break;
     }
+    if (resolved >= budget) {
+      return { events: sim.events, eventsResolved: resolved, budgetExhausted: true };
+    }
+    resolved += 1;
     state.simTimeMs = next.time;
     switch (next.kind) {
       case "phase_end":
@@ -240,7 +255,7 @@ export function advance(state: GameState, ms: number): AdvanceResult {
   }
 
   state.simTimeMs = targetTime;
-  return { events: sim.events };
+  return { events: sim.events, eventsResolved: resolved, budgetExhausted: false };
 }
 
 function errorResult(error: InventoryError | SkillError | PassiveError | null, events: GameEvent[]): ActionResult {

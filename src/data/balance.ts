@@ -98,3 +98,14 @@ export const EVALUATE_PACK_SIZE = 3;
 
 /** Damage mix assumed by EHP; fractions sum to 1. Physical uses the zone's base monster hit. */
 export const EVALUATE_DAMAGE_MIX = { physical: 0.4, fire: 0.15, cold: 0.15, lightning: 0.15, chaos: 0.15 } as const;
+
+// --- Offline progression (plan §11) ---
+
+/** Time away beyond this is not simulated. */
+export const OFFLINE_CAP_MS = 8 * 3_600_000;
+/** Sim time per `advance()` call in the chunked offline run. */
+export const OFFLINE_CHUNK_MS = 60_000;
+/** Hard safety cap per settlement; valid rules stay far below it (~400k worst case). */
+export const OFFLINE_EVENT_BUDGET = 2_000_000;
+/** Gaps up to this are settled silently, without a summary. */
+export const OFFLINE_SUMMARY_MIN_MS = 60_000;

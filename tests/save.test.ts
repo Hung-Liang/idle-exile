@@ -4,27 +4,17 @@ import {
   BACKUP_KEY,
   CORRUPT_KEY,
   SAVE_KEY,
+  decodeExport,
+  encodeExport,
   loadSave,
   parseSave,
   serializeSave,
   writeSave,
-  type KeyValueStorage,
 } from "../src/game/save";
+import { crc32 } from "../src/game/crc32";
 import { createInitialState, type GameState } from "../src/game/state";
 import { CURRENT_SCHEMA_VERSION } from "../src/game/migrations";
-
-class MemoryStorage implements KeyValueStorage {
-  readonly data = new Map<string, string>();
-  getItem(key: string): string | null {
-    return this.data.get(key) ?? null;
-  }
-  setItem(key: string, value: string): void {
-    this.data.set(key, value);
-  }
-  removeItem(key: string): void {
-    this.data.delete(key);
-  }
-}
+import { MemoryStorage } from "./helpers/memory-storage";
 
 const times = { savedAt: 1_700_000_000_000, lastActiveAt: 1_700_000_000_000 };
 const newGame = { seed: 77, now: 1_800_000_000_000 };
@@ -196,5 +186,78 @@ describe("loadSave", () => {
     writeSave(storage, once, times);
     const twice = loadSave(storage, newGame).state;
     expect(twice).toEqual(state);
+  });
+});
+
+describe("crc32", () => {
+  it("matches the standard check value", () => {
+    expect(crc32(new TextEncoder().encode("123456789"))).toBe(0xcbf43926);
+    expect(crc32(new Uint8Array())).toBe(0);
+  });
+});
+
+describe("encodeExport / decodeExport", () => {
+  it("round-trips the state and timestamps", () => {
+    const state = withEncounter(createInitialState(21));
+    state.inventory.currency.kindle_shard = 17;
+    const decoded = decodeExport(encodeExport(state, { savedAt: 5, lastActiveAt: 4 }));
+    expect(decoded).toEqual({ ok: true, state: { ...state, encounter: null }, lastActiveAt: 4, savedAt: 5 });
+  });
+
+  it("keeps non-ASCII log text intact", () => {
+    const state = createInitialState(22);
+    state.log.push({ timeMs: 0, kind: "info", text: "Slew Ölgrim — 斬殺" });
+    const decoded = decodeExport(encodeExport(state, times));
+    expect(decoded.ok && decoded.state.log.at(-1)?.text).toBe("Slew Ölgrim — 斬殺");
+  });
+
+  it("ignores surrounding and embedded whitespace from copy-paste", () => {
+    const text = encodeExport(createInitialState(23), times);
+    const wrapped = `  ${text.slice(0, 40)}\n${text.slice(40)}\n`;
+    expect(decodeExport(wrapped).ok).toBe(true);
+  });
+
+  it("rejects a corrupted payload or checksum", () => {
+    const text = encodeExport(createInitialState(24), times);
+    const [payload, checksum] = text.split(".") as [string, string];
+    const flipped = payload[10] === "A" ? "B" : "A";
+    expect(decodeExport(`${payload.slice(0, 10)}${flipped}${payload.slice(11)}.${checksum}`)).toEqual({ ok: false, error: "checksum mismatch" });
+    expect(decodeExport(`${payload}.00000000`)).toEqual({ ok: false, error: "checksum mismatch" });
+    expect(decodeExport(payload)).toEqual({ ok: false, error: "missing checksum" });
+    expect(decodeExport("not base64!.12345678")).toEqual({ ok: false, error: "invalid base64" });
+  });
+
+  it("rejects a valid checksum over an invalid save", () => {
+    const json = new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, state: {} }));
+    const text = `${btoa(String.fromCharCode(...json))}.${crc32(json).toString(16).padStart(8, "0")}`;
+    const decoded = decodeExport(text);
+    expect(decoded.ok).toBe(false);
+    expect(!decoded.ok && decoded.error).toContain("invalid state");
+  });
+
+  it("export → import → export reproduces the same string", () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 0xffffffff }), (seed) => {
+        const text = encodeExport(createInitialState(seed), times);
+        const decoded = decodeExport(text);
+        if (!decoded.ok) throw new Error(decoded.error);
+        expect(encodeExport(decoded.state, times)).toBe(text);
+      }),
+      { numRuns: 25 },
+    );
+  });
+
+  it("importing moves the current save to the backup", () => {
+    const storage = new MemoryStorage();
+    const current = createInitialState(25);
+    current.progression.totalKills = 3;
+    writeSave(storage, current, times);
+    const currentText = storage.getItem(SAVE_KEY);
+
+    const decoded = decodeExport(encodeExport(createInitialState(26), times));
+    if (!decoded.ok) throw new Error(decoded.error);
+    writeSave(storage, decoded.state, times);
+    expect(storage.getItem(BACKUP_KEY)).toBe(currentText);
+    expect(loadSave(storage, newGame).state).toEqual(createInitialState(26));
   });
 });
