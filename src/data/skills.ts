@@ -31,7 +31,7 @@ export const SKILLS: Record<SkillId, SkillDefinition> = {
     name: "Rapid Assault",
     unlockLevel: 4,
     tags: ["attack", "single_target"],
-    effectiveness: 0.85,
+    effectiveness: 1.0,
     modifiers: [{ stat: "attack_speed", kind: "more", value: 60 }],
   },
   arc_pulse: {

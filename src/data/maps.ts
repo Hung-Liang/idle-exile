@@ -11,10 +11,10 @@ export interface MapTierDefinition {
 /** Plan §10.5. Index = tier − 1; the length must equal MAX_MAP_TIER. */
 export const MAP_TIERS: readonly MapTierDefinition[] = [
   { tier: 1, monsterLevel: 40, quantityPct: 0, rarityPct: 0 },
-  { tier: 2, monsterLevel: 43, quantityPct: 10, rarityPct: 10 },
-  { tier: 3, monsterLevel: 46, quantityPct: 20, rarityPct: 20 },
-  { tier: 4, monsterLevel: 49, quantityPct: 30, rarityPct: 30 },
-  { tier: 5, monsterLevel: 52, quantityPct: 40, rarityPct: 40 },
+  { tier: 2, monsterLevel: 42, quantityPct: 10, rarityPct: 10 },
+  { tier: 3, monsterLevel: 44, quantityPct: 20, rarityPct: 20 },
+  { tier: 4, monsterLevel: 46, quantityPct: 30, rarityPct: 30 },
+  { tier: 5, monsterLevel: 48, quantityPct: 40, rarityPct: 40 },
 ];
 
 export const MAP_REQUIRED_ENCOUNTERS = 12;

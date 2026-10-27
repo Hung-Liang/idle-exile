@@ -33,7 +33,7 @@ describe("resolveActivity: maps", () => {
   it("resolves a plain run from the tier", () => {
     const resolved = resolveActivity(inMap(3, []));
     expect(resolved.name).toBe("Map Tier 3");
-    expect(resolved.monsterLevel).toBe(46);
+    expect(resolved.monsterLevel).toBe(44);
     expect(resolved.requiredEncounters).toBe(MAP_REQUIRED_ENCOUNTERS);
     expect(resolved.monsterPool.map((e) => e.id)).toEqual(Object.keys(MONSTERS));
     expect(resolved.bossPool.map((e) => e.id)).toEqual(MAP_BOSS_POOL);
