@@ -219,6 +219,28 @@ const GROUPS: GroupSpec[] = [
     ranges: [[5, 10], [11, 16], [17, 23]],
     itemLevels: { 3: 15 },
   },
+  // Ailment affixes (v0.7.0) have no damage type, so they apply to every ailment.
+  {
+    group: "ailment_effect",
+    category: "suffix",
+    itemClasses: ["amulet"],
+    modifier: { stat: "ailment_effect", kind: "increased" },
+    ranges: [[8, 12], [13, 18], [19, 25], [26, 32]],
+  },
+  {
+    group: "ailment_chance",
+    category: "suffix",
+    itemClasses: ["weapon"],
+    modifier: { stat: "ailment_chance", kind: "flat" },
+    ranges: [[3, 5], [6, 8], [9, 11], [12, 15]],
+  },
+  {
+    group: "ailment_avoidance",
+    category: "suffix",
+    itemClasses: ["helmet", "body", "boots"],
+    modifier: { stat: "ailment_avoidance", kind: "flat" },
+    ranges: [[8, 12], [13, 18], [19, 25], [26, 32]],
+  },
   {
     group: "life_on_hit",
     category: "suffix",

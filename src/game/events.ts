@@ -32,12 +32,14 @@ export type ScheduledEvent =
   | { kind: "phase_end"; time: number }
   | { kind: "player_attack"; time: number }
   | { kind: "ailment_tick"; time: number; monsterIndex: number; ailment: DamagingAilmentId }
+  | { kind: "player_ailment_tick"; time: number; ailment: DamagingAilmentId }
   | { kind: "monster_attack"; time: number; monsterIndex: number };
 
 /**
  * Selects the earliest currently valid event, recomputed from state every time (plan §4.1).
- * Ties: encounter start / respawn, then the player attack, then ailment ticks (ascending monster
- * index, bleed before ignite), then monsters in ascending index. Phase-end events only exist
+ * Ties: encounter start / respawn, then the player attack, then ailment ticks on monsters (ascending
+ * monster index, bleed before ignite), then ailment ticks on the player (bleed before ignite), then
+ * monsters in ascending index. Phase-end events only exist
  * outside `fighting` and the others only inside it, so the first tie-break rule never competes
  * with the others.
  */
@@ -56,6 +58,15 @@ export function nextScheduledEvent(encounter: EncounterRuntime): ScheduledEvent 
       }
     }
   });
+  const playerAilments = encounter.player.ailments;
+  if (playerAilments !== undefined) {
+    for (const ailment of DAMAGING_AILMENT_IDS) {
+      const tick = playerAilments[ailment];
+      if (tick !== undefined && tick.nextTickAt < best.time) {
+        best = { kind: "player_ailment_tick", time: tick.nextTickAt, ailment };
+      }
+    }
+  }
   encounter.monsters.forEach((monster, monsterIndex) => {
     if (monster.alive && monster.nextAttackAt < best.time) {
       best = { kind: "monster_attack", time: monster.nextAttackAt, monsterIndex };

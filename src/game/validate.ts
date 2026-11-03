@@ -361,7 +361,10 @@ function checkEncounter(c: Checker, v: unknown): void {
   c.bool("encounter.isBoss", v.isBoss);
   if (!["fighting", "transition", "respawning"].includes(v.phase as string)) c.fail("encounter.phase", "unknown phase");
   c.nonNegInt("encounter.phaseEndsAt", v.phaseEndsAt);
-  if (c.obj("encounter.player", v.player)) c.nonNegInt("encounter.player.nextAttackAt", v.player.nextAttackAt);
+  if (c.obj("encounter.player", v.player)) {
+    c.nonNegInt("encounter.player.nextAttackAt", v.player.nextAttackAt);
+    if (v.player.ailments !== undefined) checkAilmentRuntimes(c, "encounter.player.ailments", v.player.ailments);
+  }
   c.intInRange("encounter.levelGap", v.levelGap, 0, LEVEL_GAP_MAX_LEVELS);
   if (c.obj("encounter.stacks", v.stacks)) {
     for (const [id, n] of Object.entries(v.stacks)) {
@@ -379,12 +382,12 @@ function checkEncounter(c: Checker, v: unknown): void {
       c.nonNegInt(`${path}.maxLife`, m.maxLife);
       c.nonNegInt(`${path}.nextAttackAt`, m.nextAttackAt);
       c.bool(`${path}.alive`, m.alive);
-      if (m.ailments !== undefined) checkMonsterAilments(c, `${path}.ailments`, m.ailments);
+      if (m.ailments !== undefined) checkAilmentRuntimes(c, `${path}.ailments`, m.ailments);
     });
   }
 }
 
-function checkMonsterAilments(c: Checker, path: string, v: unknown): void {
+function checkAilmentRuntimes(c: Checker, path: string, v: unknown): void {
   if (!c.obj(path, v)) return;
   for (const [id, a] of Object.entries(v)) {
     const ap = `${path}.${id}`;

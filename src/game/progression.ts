@@ -215,6 +215,7 @@ function leaveEncounter(state: GameState): void {
   const encounter = state.encounter;
   if (encounter === null) return;
   encounter.monsters = [];
+  delete encounter.player.ailments;
   if (encounter.phase === "fighting") {
     encounter.phase = "transition";
     encounter.phaseEndsAt = state.simTimeMs + TRANSITION_MS;

@@ -48,6 +48,8 @@ function describeModifierValue(mod: ModifierSpec): string {
       return `${scaled} effect of ${ailmentName(mod)}`;
     case "ailment_duration":
       return `${scaled} duration of ${ailmentName(mod)}`;
+    case "ailment_avoidance":
+      return `${fmt(v)}% chance to avoid ${mod.damageType === "physical" ? "bleeding" : ailmentName(mod)}`;
     case "crit_chance":
       return mod.kind === "flat" ? `${signed}% critical strike chance` : `${scaled} critical strike chance`;
     case "crit_multiplier":

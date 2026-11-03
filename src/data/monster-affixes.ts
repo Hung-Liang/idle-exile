@@ -9,13 +9,14 @@ export type MonsterAffixId =
   | "flaming"
   | "frozen"
   | "shocking"
-  | "virulent";
+  | "virulent"
+  | "lacerating";
 
 export interface MonsterAffixDefinition {
   id: MonsterAffixId;
   name: string;
   weight: number;
-  /** Applied to the elite only (`life_max`, `damage`, `attack_speed`, `armor`, `resistance`, `gain_as_extra`). */
+  /** Applied to the elite only (`life_max`, `damage`, `attack_speed`, `armor`, `resistance`, `gain_as_extra`, `ailment_chance`). */
   mods: ModifierSpec[];
 }
 
@@ -31,10 +32,41 @@ export const MONSTER_AFFIXES: Record<MonsterAffixId, MonsterAffixDefinition> = {
     weight: 100,
     mods: (["fire", "cold", "lightning"] as const).map((damageType): ModifierSpec => ({ stat: "resistance", kind: "flat", damageType, value: 30 })),
   },
-  flaming: { id: "flaming", name: "Flaming", weight: 70, mods: [{ stat: "gain_as_extra", kind: "flat", damageType: "fire", value: 20 }] },
-  frozen: { id: "frozen", name: "Frozen", weight: 70, mods: [{ stat: "gain_as_extra", kind: "flat", damageType: "cold", value: 20 }] },
-  shocking: { id: "shocking", name: "Shocking", weight: 70, mods: [{ stat: "gain_as_extra", kind: "flat", damageType: "lightning", value: 20 }] },
+  // v0.7.0: the elemental affixes also inflict their element's ailment.
+  flaming: {
+    id: "flaming",
+    name: "Flaming",
+    weight: 70,
+    mods: [
+      { stat: "gain_as_extra", kind: "flat", damageType: "fire", value: 20 },
+      { stat: "ailment_chance", kind: "flat", damageType: "fire", value: 20 },
+    ],
+  },
+  frozen: {
+    id: "frozen",
+    name: "Frozen",
+    weight: 70,
+    mods: [
+      { stat: "gain_as_extra", kind: "flat", damageType: "cold", value: 20 },
+      { stat: "ailment_chance", kind: "flat", damageType: "cold", value: 20 },
+    ],
+  },
+  shocking: {
+    id: "shocking",
+    name: "Shocking",
+    weight: 70,
+    mods: [
+      { stat: "gain_as_extra", kind: "flat", damageType: "lightning", value: 20 },
+      { stat: "ailment_chance", kind: "flat", damageType: "lightning", value: 20 },
+    ],
+  },
   virulent: { id: "virulent", name: "Virulent", weight: 50, mods: [{ stat: "gain_as_extra", kind: "flat", damageType: "chaos", value: 15 }] },
+  lacerating: {
+    id: "lacerating",
+    name: "Lacerating",
+    weight: 60,
+    mods: [{ stat: "ailment_chance", kind: "flat", damageType: "physical", value: 30 }],
+  },
 };
 
 export type EliteRank = "magic" | "rare";

@@ -5,6 +5,7 @@ import {
   RESISTANCE_DEFAULT_MAX,
   RESISTANCE_MIN,
 } from "../data/balance";
+import { AILMENT_IDS, AILMENTS, type AilmentId } from "../data/ailments";
 import { PASSIVE_NODES } from "../data/passive-tree";
 import { SKILLS, type SkillDefinition } from "../data/skills";
 import type { StackId } from "../data/stacks";
@@ -48,6 +49,8 @@ export interface DefensiveStats {
   lifeOnHit: number;
   /** Percent of max life. */
   lifeRecoveryOnClearPct: number;
+  /** Percent chance to avoid each ailment monsters inflict, in [0, 100] (v0.7.0). */
+  ailmentAvoidance: Record<AilmentId, number>;
 }
 
 function withSource(specs: readonly ModifierSpec[], source: SourceRef): Modifier[] {
@@ -149,6 +152,11 @@ export function computeDefenses(build: PlayerBuild): DefensiveStats {
     resistanceMax[type] = max;
     resistances[type] = Math.min(max, Math.max(RESISTANCE_MIN, raw));
   }
+  const ailmentAvoidance = {} as Record<AilmentId, number>;
+  for (const id of AILMENT_IDS) {
+    const avoid = aggregate(build.mods, "ailment_avoidance", { ...ctx, damageType: AILMENTS[id].damageType }).flat;
+    ailmentAvoidance[id] = Math.min(100, Math.max(0, avoid));
+  }
   return {
     maxLife: Math.max(1, Math.floor(applyScalar(baseLife(build.level), aggregate(build.mods, "life_max", ctx)))),
     armor: Math.max(0, applyScalar(build.baseArmor, aggregate(build.mods, "armor", ctx))),
@@ -156,6 +164,7 @@ export function computeDefenses(build: PlayerBuild): DefensiveStats {
     resistanceMax,
     lifeOnHit: aggregate(build.mods, "life_on_hit", ctx).flat,
     lifeRecoveryOnClearPct: aggregate(build.mods, "life_recovery_on_clear", ctx).flat,
+    ailmentAvoidance,
   };
 }
 

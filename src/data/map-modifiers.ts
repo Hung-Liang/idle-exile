@@ -16,7 +16,8 @@ export type MapModifierId =
   | "smothering"
   | "brittle"
   | "unrelenting"
-  | "teeming";
+  | "teeming"
+  | "afflicting";
 
 export interface MapModifierDefinition {
   id: MapModifierId;
@@ -182,5 +183,14 @@ export const MAP_MODIFIERS: Record<MapModifierId, MapModifierDefinition> = {
     monsterMods: [],
     playerMods: [],
     eliteChancePct: 100,
+  },
+  afflicting: {
+    id: "afflicting",
+    name: "Afflicting",
+    description: "Monsters have +20% chance to inflict ailments.",
+    quantityPct: 10,
+    rarityPct: 8,
+    monsterMods: [{ stat: "ailment_chance", kind: "flat", value: 20 }],
+    playerMods: [],
   },
 };

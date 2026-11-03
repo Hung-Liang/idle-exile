@@ -1,9 +1,14 @@
 import { AILMENT_IDS, AILMENTS, type AilmentId, type DamagingAilmentId } from "../data/ailments";
 import { DOT_TICK_MS } from "../data/balance";
-import type { DamagePortions } from "./combat";
+import type { DamagePortions, MonsterStats } from "./combat";
 import { aggregate, applyScalar, type AggregateContext } from "./modifiers";
 import { damageTags, type PlayerBuild, type Stacks } from "./stats";
-import type { DamagingAilmentRuntime, MonsterRuntime } from "./state";
+import type { AilmentRuntimes, DamagingAilmentRuntime } from "./state";
+
+/** A monster, or the player's side of the encounter (v0.7.0). */
+export interface Afflictable {
+  ailments?: AilmentRuntimes;
+}
 
 export interface AilmentStats {
   /** Percent per hit, in [0, 100]. */
@@ -36,6 +41,23 @@ export function ailmentStats(build: PlayerBuild, stacks: Stacks): AilmentStatTab
   return table;
 }
 
+/**
+ * What a monster's hits inflict on the player (v0.7.0): the monster's chance, reduced by the
+ * player's avoidance, with the base magnitude and duration.
+ */
+export function monsterAilmentStats(stats: MonsterStats, avoidance: Readonly<Record<AilmentId, number>>): AilmentStatTable {
+  const table = {} as AilmentStatTable;
+  for (const id of AILMENT_IDS) {
+    const def = AILMENTS[id];
+    table[id] = {
+      chance: stats.ailmentChance[id] * (1 - avoidance[id] / 100),
+      magnitude: def.magnitude,
+      durationMs: def.durationMs,
+    };
+  }
+  return table;
+}
+
 /** Whether the attack needs an ailment draw at all; builds without any chance consume none. */
 export function hasAilmentChance(table: AilmentStatTable): boolean {
   return AILMENT_IDS.some((id) => table[id].chance > 0);
@@ -46,35 +68,35 @@ export function dotTicks(durationMs: number): number {
   return Math.max(1, Math.round(durationMs / DOT_TICK_MS));
 }
 
-function activeMagnitude(monster: MonsterRuntime, id: "chill" | "shock", now: number): number {
-  const ailment = monster.ailments?.[id];
+function activeMagnitude(target: Afflictable, id: "chill" | "shock", now: number): number {
+  const ailment = target.ailments?.[id];
   return ailment !== undefined && ailment.endsAt > now ? ailment.magnitude : 0;
 }
 
-/** Percent more damage the monster takes from an active shock. */
-export function shockPct(monster: MonsterRuntime, now: number): number {
-  return activeMagnitude(monster, "shock", now);
+/** Percent more damage the target takes from an active shock. */
+export function shockPct(target: Afflictable, now: number): number {
+  return activeMagnitude(target, "shock", now);
 }
 
-/** A monster attack scheduled while chilled waits longer; an attack already scheduled is not moved. */
-export function chilledIntervalMs(intervalMs: number, monster: MonsterRuntime, now: number): number {
-  const chill = activeMagnitude(monster, "chill", now);
+/** An attack scheduled while chilled waits longer; an attack already scheduled is not moved. */
+export function chilledIntervalMs(intervalMs: number, target: Afflictable, now: number): number {
+  const chill = activeMagnitude(target, "chill", now);
   return chill > 0 ? Math.round(intervalMs / (1 - chill / 100)) : intervalMs;
 }
 
 /** Shock applies to each tick; the ailment itself stores the pre-shock value. */
-export function dotTickDamage(ailment: DamagingAilmentRuntime, monster: MonsterRuntime, now: number): number {
-  return Math.max(1, Math.floor(ailment.damagePerTick * (1 + shockPct(monster, now) / 100)));
+export function dotTickDamage(ailment: DamagingAilmentRuntime, target: Afflictable, now: number): number {
+  return Math.max(1, Math.floor(ailment.damagePerTick * (1 + shockPct(target, now) / 100)));
 }
 
 /**
- * Applies what one hit inflicts (plan §6.8). `roll ∈ [0, 1)` is the attack's single ailment draw,
+ * Applies what one hit inflicts (plan §6.8), by the player or by a monster. `roll ∈ [0, 1)` is the attack's single ailment draw,
  * shared by every target and ailment; `portions` are the hit's mitigated damage per type before
  * shock. A new bleed or ignite replaces the current one unless the current one deals more per tick;
  * a chill or shock replaces an active one unless that one is stronger. Returns what was applied.
  */
 export function applyAilments(
-  monster: MonsterRuntime,
+  target: Afflictable,
   table: AilmentStatTable,
   portions: DamagePortions,
   roll: number,
@@ -85,7 +107,7 @@ export function applyAilments(
     const def = AILMENTS[id];
     const stats = table[id];
     if (stats.chance <= 0 || roll * 100 >= stats.chance || portions[def.damageType] <= 0) continue;
-    const ailments = (monster.ailments ??= {});
+    const ailments = (target.ailments ??= {});
     if (def.kind === "damaging") {
       const ticks = dotTicks(stats.durationMs);
       const damagePerTick = (portions[def.damageType] * stats.magnitude) / 100 / ticks;
@@ -94,7 +116,7 @@ export function applyAilments(
       ailments[id as DamagingAilmentId] = { damagePerTick, nextTickAt: now + DOT_TICK_MS, ticksLeft: ticks };
     } else {
       const key = id as "chill" | "shock";
-      if (activeMagnitude(monster, key, now) > stats.magnitude) continue;
+      if (activeMagnitude(target, key, now) > stats.magnitude) continue;
       ailments[key] = { magnitude: stats.magnitude, endsAt: now + stats.durationMs };
     }
     applied.push(id);
@@ -102,10 +124,10 @@ export function applyAilments(
   return applied;
 }
 
-/** Ailments currently on the monster, in definition order. */
-export function activeAilments(monster: MonsterRuntime, now: number): AilmentId[] {
+/** Ailments currently on the target, in definition order. */
+export function activeAilments(target: Afflictable, now: number): AilmentId[] {
   return AILMENT_IDS.filter((id) => {
-    if (AILMENTS[id].kind === "damaging") return monster.ailments?.[id as DamagingAilmentId] !== undefined;
-    return activeMagnitude(monster, id as "chill" | "shock", now) > 0;
+    if (AILMENTS[id].kind === "damaging") return target.ailments?.[id as DamagingAilmentId] !== undefined;
+    return activeMagnitude(target, id as "chill" | "shock", now) > 0;
   });
 }

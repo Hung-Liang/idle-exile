@@ -1,3 +1,5 @@
+import { AILMENTS } from "../../data/ailments";
+import { activeAilments } from "../../game/ailments";
 import { xpToNextLevel, MAX_LEVEL } from "../../data/balance";
 import { SKILLS } from "../../data/skills";
 import { SUPPORTS } from "../../data/supports";
@@ -70,7 +72,8 @@ export function createCharacterPanel(): Panel {
         const need = xpToNextLevel(character.level);
         xp.set(character.xp, need, "Experience", `${Math.floor(character.xp).toLocaleString("en-US")} / ${need.toLocaleString("en-US")}`);
       }
-      life.set(character.life, stats.maxLife, "Life", `${character.life} / ${stats.maxLife}`);
+      const ailments = state.encounter === null ? [] : activeAilments(state.encounter.player, state.simTimeMs).map((id) => AILMENTS[id].name);
+      life.set(character.life, stats.maxLife, ["Life", ...ailments].join(" · "), `${character.life} / ${stats.maxLife}`);
       offense.set([evaluation.singleTargetDps.toFixed(1), evaluation.packDps.toFixed(1), String(Math.round(evaluation.ehp))]);
       defenses.set([String(Math.round(stats.armor)), ...resTypes.map((t) => `${Math.round(stats.resistances[t])}%`)]);
 

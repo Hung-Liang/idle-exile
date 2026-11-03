@@ -27,6 +27,8 @@ export const STAT_IDS = [
   "armor",
   "resistance",
   "resistance_max",
+  // chance to avoid an ailment monsters inflict; the damage type selects it, none = every ailment (v0.7.0)
+  "ailment_avoidance",
   // recovery
   "life_on_hit",
   "life_recovery_on_clear",

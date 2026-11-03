@@ -9,13 +9,15 @@ import {
   chilledIntervalMs,
   dotTickDamage,
   hasAilmentChance,
+  monsterAilmentStats,
   shockPct,
 } from "../src/game/ailments";
 import { finalDamage, hitPortions, monsterStats, rollAttack, sumHit, type DamagePortions } from "../src/game/combat";
-import { advance } from "../src/game/engine";
+import { advance, dispatch } from "../src/game/engine";
 import { evaluateBuild } from "../src/game/evaluate";
 import type { Modifier, ModifierSpec } from "../src/game/modifiers";
 import { nextFloat, type RngState } from "../src/game/random";
+import { nextScheduledEvent } from "../src/game/events";
 import { collectBuild, type PlayerBuild } from "../src/game/stats";
 import { createInitialState, type GameState, type MonsterRuntime } from "../src/game/state";
 import { validateState } from "../src/game/validate";
@@ -220,5 +222,135 @@ describe("evaluate: ailments", () => {
   it("gives an area skill the same per-target uplift in pack DPS", () => {
     const e = evaluateBuild(build("ice_nova", [], 20), 20);
     expect(e.packDps).toBeCloseTo(3 * e.singleTargetDps);
+  });
+});
+
+describe("ailments on the player (v0.7.0)", () => {
+  function fighting(defId: string, monsterAttackAt: number): GameState {
+    const state = createInitialState(7);
+    state.character.life = 1000;
+    state.encounter = {
+      index: 0,
+      isBoss: false,
+      phase: "fighting",
+      phaseEndsAt: 0,
+      // The player never acts inside these windows.
+      player: { nextAttackAt: 1_000_000 },
+      stacks: {},
+      levelGap: 0,
+      monsters: [{ ...monster({ nextAttackAt: monsterAttackAt }), defId }],
+    };
+    return state;
+  }
+
+  const dot = { damagePerTick: 10, nextTickAt: 500, ticksLeft: 2 };
+
+  it("monster chance includes mods, and avoidance scales it", () => {
+    const mod: Modifier = { stat: "ailment_chance", kind: "flat", value: 20, source: { kind: "map", id: "afflicting" } };
+    expect(monsterStats("brute", 10).ailmentChance.bleed).toBe(0);
+    const stats = monsterStats("mire_matron", 10, [mod]);
+    expect(stats.ailmentChance).toEqual({ bleed: 35, ignite: 35, chill: 35, shock: 35 });
+    const table = monsterAilmentStats(stats, { bleed: 100, ignite: 50, chill: 0, shock: 0 });
+    expect(table.bleed.chance).toBe(0);
+    expect(table.ignite.chance).toBe(17.5);
+    expect(table.ignite).toMatchObject({ magnitude: AILMENTS.ignite.magnitude, durationMs: AILMENTS.ignite.durationMs });
+  });
+
+  it("monsters without a chance draw no ailment roll", () => {
+    const state = fighting("skirmisher", 1000);
+    const expected: RngState = [...state.rng.combat];
+    nextFloat(expected);
+    advance(state, 1000);
+    expect(state.rng.combat).toEqual(expected);
+  });
+
+  it("a monster hit whose roll lands afflicts the player; full avoidance removes the draw", () => {
+    // The boss's chance is 15%, so look for a stream whose ailment draw lands.
+    let state: GameState;
+    let seed = 0;
+    do {
+      state = fighting("mire_matron", 1000);
+      state.rng.combat = [seed, seed + 1, seed + 2, seed + 3];
+      seed += 1;
+      advance(state, 1000);
+    } while (state.encounter!.player.ailments?.ignite === undefined && seed < 1000);
+    expect(state.encounter!.player.ailments?.ignite).toMatchObject({ nextTickAt: 1000 + DOT_TICK_MS, ticksLeft: 8 });
+
+    const avoided = monsterAilmentStats(monsterStats("mire_matron", 10), { bleed: 100, ignite: 100, chill: 100, shock: 100 });
+    expect(hasAilmentChance(avoided)).toBe(false);
+  });
+
+  it("damaging ailments tick on the player, shocked, and are removed after the last tick", () => {
+    const state = fighting("skirmisher", 1_000_000);
+    state.encounter!.player.ailments = { ignite: { ...dot }, shock: { magnitude: 50, endsAt: 10_000 } };
+    advance(state, 500);
+    expect(state.character.life).toBe(1000 - 15);
+    advance(state, 500);
+    expect(state.character.life).toBe(1000 - 30);
+    expect(state.encounter!.player.ailments?.ignite).toBeUndefined();
+  });
+
+  it("player ticks resolve after monster ticks and before monster attacks", () => {
+    const state = fighting("skirmisher", 500);
+    const encounter = state.encounter!;
+    encounter.player.ailments = { bleed: { ...dot } };
+    expect(nextScheduledEvent(encounter)).toMatchObject({ kind: "player_ailment_tick", ailment: "bleed" });
+    encounter.monsters[0]!.ailments = { ignite: { ...dot } };
+    expect(nextScheduledEvent(encounter)).toMatchObject({ kind: "ailment_tick", ailment: "ignite" });
+  });
+
+  it("shock raises monster hit damage and chill slows the player's next attack only", () => {
+    const hit = (shocked: boolean) => {
+      const state = fighting("skirmisher", 1000);
+      if (shocked) state.encounter!.player.ailments = { shock: { magnitude: 50, endsAt: 10_000 } };
+      advance(state, 1000);
+      return 1000 - state.character.life;
+    };
+    // The base hit is floored, so its unfloored value lies in [plain, plain + 1).
+    const plain = hit(false);
+    expect(hit(true)).toBeGreaterThanOrEqual(Math.floor(plain * 1.5));
+    expect(hit(true)).toBeLessThanOrEqual(Math.floor((plain + 1) * 1.5));
+
+    const state = fighting("skirmisher", 1_000_000);
+    const encounter = state.encounter!;
+    encounter.player.nextAttackAt = 100;
+    advance(state, 100);
+    const normal = encounter.player.nextAttackAt - 100;
+    encounter.player.ailments = { chill: { magnitude: 50, endsAt: 1_000_000 } };
+    encounter.player.nextAttackAt = 200;
+    advance(state, 100);
+    expect(encounter.player.nextAttackAt - 200).toBe(normal * 2);
+  });
+
+  it("a lethal tick kills the player and every way out of fighting clears player ailments", () => {
+    const state = fighting("skirmisher", 1_000_000);
+    state.character.life = 5;
+    state.encounter!.player.ailments = { bleed: { ...dot } };
+    const { events } = advance(state, 500);
+    expect(events.map((e) => e.type)).toContain("player_died");
+    expect(state.encounter!.phase).toBe("respawning");
+    expect(state.encounter!.player.ailments).toBeUndefined();
+    expect(state.log.at(-1)?.text).toBe("Slain by bleed.");
+
+    const travelled = fighting("skirmisher", 1_000_000);
+    travelled.encounter!.player.ailments = { bleed: { ...dot } };
+    expect(dispatch(travelled, { type: "travel_to_zone", zoneId: travelled.progression.unlockedZones[0]! }).ok).toBe(true);
+    expect(travelled.encounter!.player.ailments).toBeUndefined();
+
+    const cleared = fighting("skirmisher", 1_000_000);
+    cleared.encounter!.player.ailments = { bleed: { ...dot } };
+    cleared.encounter!.monsters[0]!.life = 1;
+    cleared.encounter!.player.nextAttackAt = 1;
+    advance(cleared, 1);
+    expect(cleared.encounter!.phase).toBe("transition");
+    expect(cleared.encounter!.player.ailments).toBeUndefined();
+  });
+
+  it("the validator checks player ailments", () => {
+    const state = fighting("skirmisher", 1_000_000);
+    state.encounter!.player.ailments = { bleed: { ...dot } };
+    expect(validateState(state).ok).toBe(true);
+    (state.encounter!.player.ailments as Record<string, unknown>).plague = {};
+    expect(validateState(state).ok).toBe(false);
   });
 });

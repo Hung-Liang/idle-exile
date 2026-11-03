@@ -14,6 +14,7 @@ import {
   spellBaseDamage,
   SPELL_DAMAGE_SPREAD,
 } from "../data/balance";
+import { AILMENT_IDS, AILMENTS, type AilmentId } from "../data/ailments";
 import { getMonsterDefinition } from "../data/monsters";
 import type { SkillDefinition } from "../data/skills";
 import { aggregate, applyScalar, DAMAGE_TYPES, type AggregateContext, type DamageType, type Modifier } from "./modifiers";
@@ -38,6 +39,8 @@ export interface MonsterStats {
   resistances: Partial<Record<DamageType, number>>;
   /** Before the level-difference penalty. */
   xp: number;
+  /** Percent per hit, in [0, 100], before the player's avoidance (plan §6.8). */
+  ailmentChance: Record<AilmentId, number>;
 }
 
 const MONSTER_CONTEXT: AggregateContext = { tags: [], stacks: {} };
@@ -62,7 +65,8 @@ export function levelGapMods(gap: number): Modifier[] {
  * `mods` are the monster's modifiers (map modifiers, level gap, elite rank and affixes):
  * `life_max`, `damage`, `attack_speed` and `armor` scale the base values, `resistance` adds to the
  * archetype's resistances per type, and `gain_as_extra` adds that percentage of each hit as the
- * given type, so the damage split may then sum to more than 1.
+ * given type, so the damage split may then sum to more than 1. `ailment_chance` adds to the
+ * definition's chance of the ailment of its damage type (none = every ailment).
  */
 export function monsterStats(defId: string, level: number, mods: readonly Modifier[] = []): MonsterStats {
   const def = getMonsterDefinition(defId);
@@ -84,6 +88,11 @@ export function monsterStats(defId: string, level: number, mods: readonly Modifi
       }
     }
   }
+  const ailmentChance = {} as Record<AilmentId, number>;
+  for (const id of AILMENT_IDS) {
+    const added = mods.length > 0 ? aggregate(mods, "ailment_chance", { ...MONSTER_CONTEXT, damageType: AILMENTS[id].damageType }).flat : 0;
+    ailmentChance[id] = Math.min(100, Math.max(0, (def.ailmentChance?.[id] ?? 0) + added));
+  }
   return {
     name: def.name,
     maxLife: Math.max(1, Math.round(applyScalar(monsterBaseLife(level) * def.lifeMult, aggregate(mods, "life_max", MONSTER_CONTEXT)))),
@@ -93,6 +102,7 @@ export function monsterStats(defId: string, level: number, mods: readonly Modifi
     armor: Math.max(0, applyScalar(monsterBaseArmor(level) * def.armorMult, aggregate(mods, "armor", MONSTER_CONTEXT))),
     resistances,
     xp: Math.round(monsterBaseXp(level) * def.xpMult),
+    ailmentChance,
   };
 }
 
@@ -264,7 +274,7 @@ export function hitPortions(
 }
 
 /** The hit's total after mitigation and the target's damage-taken modifier, before the final floor. */
-export function sumHit(portions: DamagePortions, target: HitTarget): number {
+export function sumHit(portions: DamagePortions, target: Partial<HitTarget>): number {
   let sum = 0;
   for (const type of DAMAGE_TYPES) {
     sum += portions[type];
@@ -305,10 +315,16 @@ export function rollMonsterHit(stats: MonsterStats, rng: RngState): DamagePortio
   return portions;
 }
 
-export function mitigateHit(portions: DamagePortions, defender: Defender): number {
-  let sum = 0;
+/** A monster hit's damage per type after the player's armor and resistances, not floored. */
+export function mitigatePortions(portions: DamagePortions, defender: Defender): DamagePortions {
+  const result = emptyPortions();
   for (const type of DAMAGE_TYPES) {
-    sum += mitigatePortion(type, portions[type], defender, 0);
+    result[type] = mitigatePortion(type, portions[type], defender, 0);
   }
-  return finalDamage(sum);
+  return result;
+}
+
+/** `damageTakenMorePct` is the player's shock (plan §6.8). */
+export function mitigateHit(portions: DamagePortions, defender: Defender, damageTakenMorePct = 0): number {
+  return finalDamage(sumHit(mitigatePortions(portions, defender), { damageTakenMorePct }));
 }

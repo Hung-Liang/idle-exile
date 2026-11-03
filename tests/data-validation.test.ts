@@ -106,10 +106,10 @@ describe("data: passive tree", () => {
     expectNoErrors(checkGraph("PASSIVE_EDGES", Object.keys(PASSIVE_NODES), PASSIVE_EDGES, PASSIVE_ROOT));
   });
 
-  it("has 29 allocatable nodes plus the root", () => {
+  it("has 30 allocatable nodes plus the root", () => {
     const nodes = Object.values(PASSIVE_NODES);
     expect(nodes.filter((n) => n.kind === "root").map((n) => n.id)).toEqual([PASSIVE_ROOT]);
-    expect(nodes.filter((n) => n.kind !== "root")).toHaveLength(29);
+    expect(nodes.filter((n) => n.kind !== "root")).toHaveLength(30);
   });
 
   it("node modifiers are valid", () => {

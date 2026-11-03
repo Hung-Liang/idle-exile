@@ -40,7 +40,7 @@ export interface MonsterRuntime {
   /** Present exactly when `rank` is. */
   affixes?: MonsterAffixId[];
   /** Absent = never afflicted (plan §6.8). */
-  ailments?: MonsterAilments;
+  ailments?: AilmentRuntimes;
 }
 
 /** A bleed or ignite; removed after its last tick. */
@@ -58,7 +58,8 @@ export interface TimedAilmentRuntime {
   endsAt: number;
 }
 
-export type MonsterAilments = Partial<Record<DamagingAilmentId, DamagingAilmentRuntime>> & {
+/** Ailments on a monster or on the player. */
+export type AilmentRuntimes = Partial<Record<DamagingAilmentId, DamagingAilmentRuntime>> & {
   chill?: TimedAilmentRuntime;
   shock?: TimedAilmentRuntime;
 };
@@ -72,7 +73,11 @@ export interface EncounterRuntime {
   /** Sim ms; meaningful for `transition` / `respawning`. */
   phaseEndsAt: number;
   monsters: MonsterRuntime[];
-  player: { nextAttackAt: number };
+  player: {
+    nextAttackAt: number;
+    /** Ailments monsters inflicted on the player (v0.7.0); cleared whenever fighting ends. */
+    ailments?: AilmentRuntimes;
+  };
   /** Reset at encounter start. */
   stacks: Partial<Record<StackId, number>>;
   /**

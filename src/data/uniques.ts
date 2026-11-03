@@ -12,7 +12,10 @@ export type UniqueId =
   | "glasswork_band"
   | "prism_talisman"
   | "bastions_oath"
-  | "sundered_crown";
+  | "sundered_crown"
+  | "thornwrap"
+  | "cinderveil"
+  | "hexweavers_coil";
 
 export interface UniqueDefinition {
   id: UniqueId;
@@ -147,6 +150,41 @@ export const UNIQUES: Record<UniqueId, UniqueDefinition> = {
       { stat: "penetration", kind: "flat", tags: ["elemental"], range: [10, 15] },
       { stat: "crit_chance", kind: "increased", range: [30, 50] },
       { stat: "life_max", kind: "flat", range: [40, 60] },
+    ],
+  },
+  // v0.7.0
+  thornwrap: {
+    id: "thornwrap",
+    name: "Thornwrap",
+    baseId: "riveted_gloves",
+    weight: 80,
+    lines: [
+      { stat: "ailment_chance", kind: "flat", damageType: "physical", range: [15, 20] },
+      { stat: "ailment_effect", kind: "increased", damageType: "physical", range: [30, 40] },
+      { stat: "attack_speed", kind: "increased", range: [-8, -8] },
+    ],
+  },
+  cinderveil: {
+    id: "cinderveil",
+    name: "Cinderveil",
+    baseId: "scale_cuirass",
+    weight: 60,
+    lines: [
+      { stat: "ailment_avoidance", kind: "flat", damageType: "fire", range: [100, 100] },
+      { stat: "resistance", kind: "flat", damageType: "fire", range: [20, 30] },
+      { stat: "life_max", kind: "flat", range: [40, 60] },
+      { stat: "resistance", kind: "flat", damageType: "cold", range: [-15, -15] },
+    ],
+  },
+  hexweavers_coil: {
+    id: "hexweavers_coil",
+    name: "Hexweaver's Coil",
+    baseId: "copper_loop",
+    weight: 60,
+    lines: [
+      { stat: "damage", kind: "increased", tags: ["spell"], range: [15, 25] },
+      { stat: "ailment_effect", kind: "increased", range: [20, 30] },
+      { stat: "life_max", kind: "more", range: [-10, -10] },
     ],
   },
 };

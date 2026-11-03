@@ -87,7 +87,7 @@ describe("elite monsters", () => {
   });
 
   it("every affix only uses stats that monsterStats supports", () => {
-    const supported = new Set(["life_max", "damage", "attack_speed", "armor", "resistance", "gain_as_extra"]);
+    const supported = new Set(["life_max", "damage", "attack_speed", "armor", "resistance", "gain_as_extra", "ailment_chance"]);
     for (const def of Object.values(MONSTER_AFFIXES)) {
       for (const mod of def.mods) expect(supported.has(mod.stat)).toBe(true);
     }

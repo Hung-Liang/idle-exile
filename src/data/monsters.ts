@@ -1,4 +1,5 @@
 import type { DamageType } from "../game/modifiers";
+import type { AilmentId } from "./ailments";
 
 export type MonsterId = "brute" | "skirmisher" | "ember_wisp" | "frost_husk" | "storm_shade" | "blighted";
 
@@ -27,6 +28,12 @@ export interface MonsterDefinition {
   /** Percent. */
   resistances: Partial<Record<DamageType, number>>;
   xpMult: number;
+  /**
+   * Base percent chance per hit to inflict each ailment on the player (v0.7.0, plan §6.8); a hit
+   * inflicts it only if it deals the ailment's damage type. Missing = 0. Only bosses set it: a
+   * base chance on normal monsters pushed arc-pulse deaths/h well past the §14.5 target.
+   */
+  ailmentChance?: Partial<Record<AilmentId, number>>;
 }
 
 export interface ArchetypeDefinition extends MonsterDefinition {
@@ -115,7 +122,14 @@ export const MONSTERS: Record<MonsterId, ArchetypeDefinition> = {
 };
 
 /** Shared boss multipliers (plan §10.3); damage split, armor and resistances are per boss. */
-const BOSS_BASE = { lifeMult: 5, damageMult: 1.5, attacksPerSecond: 0.8, xpMult: 10 } as const;
+const BOSS_BASE = {
+  lifeMult: 5,
+  damageMult: 1.5,
+  attacksPerSecond: 0.8,
+  xpMult: 10,
+  // Only the ailments of the boss's own damage types can apply.
+  ailmentChance: { bleed: 15, ignite: 15, chill: 15, shock: 15 },
+} as const;
 
 export const BOSSES: Record<BossId, BossDefinition> = {
   gatewarden: {

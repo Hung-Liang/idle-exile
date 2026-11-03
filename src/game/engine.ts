@@ -6,11 +6,19 @@ import type { DamagingAilmentId } from "../data/ailments";
 import { DEATHS_BEFORE_RETREAT, DOT_TICK_MS, RESPAWN_MS, TRANSITION_LIFE_RECOVERY_PCT, TRANSITION_MS } from "../data/balance";
 import { STACKS, type StackId } from "../data/stacks";
 import type { ZoneId } from "../data/zones";
-import { ailmentStats, applyAilments, chilledIntervalMs, dotTickDamage, hasAilmentChance, shockPct } from "./ailments";
+import {
+  ailmentStats,
+  applyAilments,
+  chilledIntervalMs,
+  dotTickDamage,
+  hasAilmentChance,
+  monsterAilmentStats,
+  shockPct,
+} from "./ailments";
 import {
   finalDamage,
   hitPortions,
-  mitigateHit,
+  mitigatePortions,
   monsterStats,
   rollAttack,
   rollMonsterHit,
@@ -168,6 +176,7 @@ function onMonsterKilled(sim: Sim, encounter: EncounterRuntime, monsterIndex: nu
 function clearEncounter(sim: Sim, encounter: EncounterRuntime): void {
   const { state } = sim;
   encounter.phase = "transition";
+  delete encounter.player.ailments;
   encounter.phaseEndsAt = state.simTimeMs + TRANSITION_MS;
   state.progression.consecutiveDeaths = 0;
 
@@ -223,7 +232,7 @@ function playerAttack(sim: Sim, encounter: EncounterRuntime): void {
   if (encounter.monsters.every((m) => !m.alive)) {
     clearEncounter(sim, encounter);
   } else {
-    encounter.player.nextAttackAt = now + attackIntervalMs(sim.build, encounter.stacks);
+    encounter.player.nextAttackAt = now + chilledIntervalMs(attackIntervalMs(sim.build, encounter.stacks), encounter.player, now);
   }
 }
 
@@ -247,20 +256,45 @@ function ailmentTick(sim: Sim, encounter: EncounterRuntime, monsterIndex: number
   }
 }
 
+/** A bleed or ignite tick on the player (v0.7.0). */
+function playerAilmentTick(sim: Sim, encounter: EncounterRuntime, id: DamagingAilmentId): void {
+  const { state } = sim;
+  const now = state.simTimeMs;
+  const ailments = encounter.player.ailments!;
+  const ailment = ailments[id]!;
+  state.character.life = Math.max(0, state.character.life - dotTickDamage(ailment, encounter.player, now));
+  ailment.ticksLeft -= 1;
+  ailment.nextTickAt = now + DOT_TICK_MS;
+  if (ailment.ticksLeft <= 0) {
+    delete ailments[id];
+  }
+  if (state.character.life === 0) {
+    playerDied(sim, encounter, id);
+  }
+}
+
 function monsterAttack(sim: Sim, encounter: EncounterRuntime, monsterIndex: number): void {
   const { state } = sim;
+  const now = state.simTimeMs;
   const monster = encounter.monsters[monsterIndex]!;
   const stats = encounterMonsterStats(sim, encounter, monster);
-  const damage = mitigateHit(rollMonsterHit(stats, state.rng.combat), {
+  const portions = mitigatePortions(rollMonsterHit(stats, state.rng.combat), {
     armor: sim.defenses.armor,
     resistances: sim.defenses.resistances,
     resistanceMax: sim.defenses.resistanceMax,
   });
+  // Like the player's, the draw exists only when the monster can inflict an ailment, so monsters
+  // without a chance keep the v0.6.0 sequence (plan §6.8).
+  const ailments = monsterAilmentStats(stats, sim.defenses.ailmentAvoidance);
+  const ailmentRoll = hasAilmentChance(ailments) ? nextFloat(state.rng.combat) : null;
+  const damage = finalDamage(sumHit(portions, { damageTakenMorePct: shockPct(encounter.player, now) }));
   state.character.life = Math.max(0, state.character.life - damage);
-  monster.nextAttackAt = state.simTimeMs + chilledIntervalMs(stats.attackIntervalMs, monster, state.simTimeMs);
+  monster.nextAttackAt = now + chilledIntervalMs(stats.attackIntervalMs, monster, now);
 
   if (state.character.life === 0) {
     playerDied(sim, encounter, stats.name);
+  } else if (ailmentRoll !== null) {
+    applyAilments(encounter.player, ailments, portions, ailmentRoll, now);
   }
 }
 
@@ -270,6 +304,7 @@ function playerDied(sim: Sim, encounter: EncounterRuntime, killerName: string): 
   encounter.phase = "respawning";
   encounter.phaseEndsAt = state.simTimeMs + RESPAWN_MS;
   encounter.monsters = [];
+  delete encounter.player.ailments;
   state.progression.consecutiveDeaths += 1;
   appendLog(state, "death", `Slain by ${killerName}.`);
   sim.events.push({ type: "player_died", timeMs: state.simTimeMs });
@@ -325,6 +360,9 @@ export function advance(state: GameState, ms: number, options: AdvanceOptions = 
         break;
       case "ailment_tick":
         ailmentTick(sim, encounter, next.monsterIndex, next.ailment);
+        break;
+      case "player_ailment_tick":
+        playerAilmentTick(sim, encounter, next.ailment);
         break;
       case "monster_attack":
         monsterAttack(sim, encounter, next.monsterIndex);

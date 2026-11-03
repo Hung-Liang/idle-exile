@@ -4,7 +4,7 @@ export type PassiveNodeId =
   | "origin"
   | "m1" | "m2" | "m3" | "m4" | "m5" | "MN1" | "KS1"
   | "c1" | "c2" | "c3" | "c4" | "c5" | "c6" | "CN1" | "CN2"
-  | "b1" | "b2" | "b3" | "b4" | "b5" | "b6" | "b7" | "BN1" | "BN2"
+  | "b1" | "b2" | "b3" | "b4" | "b5" | "b6" | "b7" | "b8" | "BN1" | "BN2"
   | "a1" | "a2" | "a3" | "a4" | "AN1";
 
 export const PASSIVE_ROOT: PassiveNodeId = "origin";
@@ -29,6 +29,7 @@ export const PASSIVE_EDGES: [PassiveNodeId, PassiveNodeId][] = [
   // Bastion
   ["b1", "b2"], ["b1", "b3"], ["b2", "b6"],
   ["b3", "b4"], ["b3", "BN1"], ["b4", "b5"], ["b5", "BN2"],
+  ["b4", "b8"], // v0.7.0
   // Arcana (v0.6.0)
   ["a1", "a2"], ["a1", "a3"], ["a2", "a4"], ["a3", "AN1"],
   // cross-links
@@ -106,6 +107,7 @@ export const PASSIVE_NODES: Record<PassiveNodeId, PassiveNodeDefinition> = {
   },
   b6: { id: "b6", name: "Plated", kind: "minor", modifiers: [{ stat: "armor", kind: "increased", value: 20 }] },
   b7: { id: "b7", name: "Bloodied", kind: "minor", modifiers: [{ stat: "life_on_hit", kind: "flat", value: 3 }] },
+  b8: { id: "b8", name: "Steadfast", kind: "minor", modifiers: [{ stat: "ailment_avoidance", kind: "flat", value: 25 }] },
   BN1: { id: "BN1", name: "Unbroken", kind: "notable", modifiers: [{ stat: "life_recovery_on_clear", kind: "flat", value: 15 }] },
   BN2: {
     id: "BN2",
